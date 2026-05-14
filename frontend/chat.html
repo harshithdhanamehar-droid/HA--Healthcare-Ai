@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>HA! - Professional AI</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body class="chat-body">
+
+    <div class="sidebar">
+        <div class="logo">🩺 HA! </div>
+        <button class="btn-new-chat" onclick="location.reload()">+ New Chat</button>
+        
+        <div class="sidebar-footer">
+            <div class="user-info">
+                User: <span id="display-name">Guest</span>
+            </div>
+            <a href="login.html" class="logout-link" onclick="localStorage.clear()">Log Out</a>
+        </div>
+    </div>
+
+    <div class="main-chat">
+        <div class="chat-container" id="chat-box">
+            <div class="message-row ai">
+                <div class="message-content">
+                    <div class="avatar ai">AI</div>
+                    <div class="text">Hello! I am your HA! Health Assistant. How can I help you today?</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="input-area">
+            <div class="input-box">
+                <input type="text" id="user-input" placeholder="Describe your symptoms..." onkeypress="handleEnter(event)">
+                <button onclick="sendMessage()">➤</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
