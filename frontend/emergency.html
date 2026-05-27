@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HA! — Emergency SOS</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/chat.css" />
+  <link rel="stylesheet" href="css/pages.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body class="app-body">
+
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-top">
+      <div class="sidebar-logo"><span class="logo-ha">HA</span><span class="logo-exclaim">!</span></div>
+      <button class="btn-new-chat" onclick="window.location.href='chat.html'">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        New Chat
+      </button>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="chat.html" class="nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>AI Chat</a>
+      <a href="symptoms.html" class="nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Symptom Checker</a>
+      <a href="doctors.html" class="nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Find Doctors</a>
+      <a href="appointments.html" class="nav-item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>My Appointments</a>
+      <a href="emergency.html" class="nav-item emergency-nav active"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>Emergency SOS</a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-profile">
+        <div class="user-avatar" id="user-avatar-sidebar">H</div>
+        <div class="user-info">
+          <span class="user-name" id="display-name">Loading...</span>
+          <span class="user-location" id="display-location">—</span>
+        </div>
+      </div>
+      <button class="logout-btn" onclick="logout()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Logout
+      </button>
+    </div>
+  </aside>
+
+  <main class="main-content page-main">
+    <header class="mobile-header">
+      <button class="hamburger" onclick="toggleSidebar()"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+      <span class="mobile-logo"><span class="logo-ha">HA</span><span class="logo-exclaim">!</span></span>
+    </header>
+
+    <div class="page-content">
+      <div class="page-header emergency-header">
+        <h1>🚨 Emergency SOS</h1>
+        <p>Immediate AI-guided first aid and emergency contact support.</p>
+      </div>
+
+      <!-- Emergency Call Buttons -->
+      <div class="emergency-numbers">
+        <a href="tel:108" class="emergency-call-btn ambulance">
+          <span class="emg-icon">🚑</span>
+          <div>
+            <strong>108</strong>
+            <span>Ambulance</span>
+          </div>
+        </a>
+        <a href="tel:102" class="emergency-call-btn ambulance">
+          <span class="emg-icon">🏥</span>
+          <div>
+            <strong>102</strong>
+            <span>Medical Helpline</span>
+          </div>
+        </a>
+        <a href="tel:100" class="emergency-call-btn police">
+          <span class="emg-icon">🚔</span>
+          <div>
+            <strong>100</strong>
+            <span>Police</span>
+          </div>
+        </a>
+        <a href="tel:101" class="emergency-call-btn fire">
+          <span class="emg-icon">🚒</span>
+          <div>
+            <strong>101</strong>
+            <span>Fire Brigade</span>
+          </div>
+        </a>
+      </div>
+
+      <!-- AI Emergency Guide -->
+      <div class="emergency-form-card">
+        <h2>🤖 AI First Aid Guide</h2>
+        <p>Describe the emergency and get instant AI-guided first aid instructions.</p>
+
+        <div class="form-group">
+          <label>Emergency Type <span class="required">*</span></label>
+          <div class="emergency-types">
+            <button class="emg-type-btn" onclick="selectEmergency('Heart Attack', this)">❤️ Heart Attack</button>
+            <button class="emg-type-btn" onclick="selectEmergency('Stroke', this)">🧠 Stroke</button>
+            <button class="emg-type-btn" onclick="selectEmergency('Severe Bleeding', this)">🩸 Bleeding</button>
+            <button class="emg-type-btn" onclick="selectEmergency('Choking', this)">😮 Choking</button>
+            <button class="emg-type-btn" onclick="selectEmergency('Unconscious Person', this)">😵 Unconscious</button>
+            <button class="emg-type-btn" onclick="selectEmergency('Severe Allergic Reaction', this)">🤧 Allergic Reaction</button>
+            <button class="emg-type-btn" onclick="selectEmergency('Burns', this)">🔥 Burns</button>
+            <button class="emg-type-btn" onclick="selectEmergency('Fracture', this)">🦴 Fracture</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Describe the Situation</label>
+          <textarea id="emg-condition" placeholder="Describe what happened in detail..." rows="3"></textarea>
+        </div>
+
+        <button class="emergency-submit-btn" onclick="getEmergencyGuide()" id="emg-btn">
+          🚨 Get Immediate Instructions
+        </button>
+      </div>
+
+      <!-- AI Response -->
+      <div class="emergency-result" id="emergency-result" style="display:none;">
+        <div class="result-header">
+          <h2>⚡ Immediate Action Required</h2>
+          <span class="alert-id" id="alert-id-display"></span>
+        </div>
+        <div class="result-body" id="emg-result-body"></div>
+        <div class="result-actions">
+          <a href="tel:108" class="btn-emergency-call">📞 Call 108 Now</a>
+          <button class="btn-secondary" onclick="clearEmergency()">🔄 New Emergency</button>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <script src="js/app.js"></script>
+  <script src="js/emergency.js"></script>
+</body>
+</html>

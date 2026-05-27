@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HA! — AI-Powered Healthcare</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/login.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+</head>
+<body class="login-body">
+
+  <!-- Animated background blobs -->
+  <div class="bg-blob blob-1"></div>
+  <div class="bg-blob blob-2"></div>
+  <div class="bg-blob blob-3"></div>
+
+  <div class="login-wrapper">
+
+    <!-- Left Panel — Branding -->
+    <div class="login-brand">
+      <div class="brand-logo">
+        <span class="logo-ha">HA</span><span class="logo-exclaim">!</span>
+      </div>
+      <h1 class="brand-tagline">AI-Powered Healthcare,<br /><em>Anytime, Anywhere!</em></h1>
+      <p class="brand-sub">
+        Your intelligent health companion — symptom analysis, doctor appointments,
+        emergency support, and personalized care, all in one place.
+      </p>
+      <div class="brand-features">
+        <div class="feat-item"><span class="feat-icon">🤖</span><span>AI Symptom Checker</span></div>
+        <div class="feat-item"><span class="feat-icon">👨‍⚕️</span><span>Book Doctor Instantly</span></div>
+        <div class="feat-item"><span class="feat-icon">🚨</span><span>Emergency Support</span></div>
+        <div class="feat-item"><span class="feat-icon">📊</span><span>Health Monitoring</span></div>
+      </div>
+    </div>
+
+    <!-- Right Panel — Login Form -->
+    <div class="login-card">
+      <div class="login-card-header">
+        <h2>Welcome to HA!</h2>
+        <p>Enter your details to get started</p>
+      </div>
+
+      <form id="loginForm" onsubmit="return false;">
+        <div class="input-group">
+          <label for="name">Full Name</label>
+          <div class="input-wrap">
+            <span class="input-icon">👤</span>
+            <input type="text" id="name" placeholder="e.g. Harshith Dhanamehar" autocomplete="off" />
+          </div>
+        </div>
+
+        <div class="input-group">
+          <label for="phone">Mobile Number</label>
+          <div class="input-wrap">
+            <span class="input-icon">📱</span>
+            <input type="tel" id="phone" placeholder="e.g. 9876543210" maxlength="10" />
+          </div>
+        </div>
+
+        <div class="input-group">
+          <label for="location">Location</label>
+          <div class="input-wrap">
+            <span class="input-icon">📍</span>
+            <input type="text" id="location" placeholder="e.g. Hyderabad" />
+          </div>
+        </div>
+
+        <p id="error-msg" class="error-msg" aria-live="polite"></p>
+
+        <button class="login-btn" onclick="login()">
+          <span id="btn-text">Continue to HA! →</span>
+          <span id="loader" class="spinner" aria-hidden="true"></span>
+        </button>
+      </form>
+
+      <p class="login-footer-note">
+        By continuing, you agree to HA!'s <a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a>.
+      </p>
+    </div>
+
+  </div>
+
+  <script src="js/login.js"></script>
+</body>
+</html>
