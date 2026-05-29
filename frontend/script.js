@@ -74,7 +74,7 @@ async function sendMessage() {
 
     try {
         // Send to FastAPI Backend
-        const response = await fetch("http://127.0.0.1:8000/chat", {
+        const response = await fetch("https://ha-healthcare-ai.onrender.com/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ username: username, message: message })

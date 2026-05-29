@@ -2,7 +2,7 @@
    HA! — Login Logic
    ═══════════════════════════════════════════════════════════════ */
 
-const API_BASE = "http://127.0.0.1:8000";
+const API_BASE = "https://ha-healthcare-ai.onrender.com";
 
 async function login() {
   const name     = document.getElementById("name").value.trim();
