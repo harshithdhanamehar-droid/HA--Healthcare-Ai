@@ -12,7 +12,7 @@
 </head>
 <body class="app-body">
 
-  <!-- ── SIDEBAR ─────────────────────────────────────────────────────────── -->
+  <!-- SIDEBAR -->
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-top">
       <div class="sidebar-logo">
@@ -25,23 +25,23 @@
     </div>
 
     <nav class="sidebar-nav">
-      <a href="chat.html" class="nav-item active" data-page="chat">
+      <a href="chat.html" class="nav-item active">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
         AI Chat
       </a>
-      <a href="symptoms.html" class="nav-item" data-page="symptoms">
+      <a href="symptoms.html" class="nav-item">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
         Symptom Checker
       </a>
-      <a href="doctors.html" class="nav-item" data-page="doctors">
+      <a href="doctors.html" class="nav-item">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
         Find Doctors
       </a>
-      <a href="appointments.html" class="nav-item" data-page="appointments">
+      <a href="appointments.html" class="nav-item">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
         My Appointments
       </a>
-      <a href="emergency.html" class="nav-item emergency-nav" data-page="emergency">
+      <a href="emergency.html" class="nav-item emergency-nav">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         Emergency SOS
       </a>
@@ -62,7 +62,7 @@
     </div>
   </aside>
 
-  <!-- ── MAIN CONTENT ────────────────────────────────────────────────────── -->
+  <!-- MAIN CONTENT -->
   <main class="main-content">
 
     <!-- Mobile header -->
@@ -73,25 +73,22 @@
       <span class="mobile-logo"><span class="logo-ha">HA</span><span class="logo-exclaim">!</span></span>
     </header>
 
-    <!-- Chat area -->
+    <!-- Scrollable chat area -->
     <div class="chat-container" id="chat-box">
-
-      <!-- Welcome message -->
       <div class="welcome-screen" id="welcome-screen">
         <div class="welcome-logo"><span class="logo-ha">HA</span><span class="logo-exclaim">!</span></div>
         <h2>How can I help you today?</h2>
         <p>Ask me anything about your health, symptoms, medications, or wellness.</p>
         <div class="quick-prompts">
-          <button class="quick-btn" onclick="quickPrompt('I have a headache and fever. What should I do?')">🤒 Headache & Fever</button>
+          <button class="quick-btn" onclick="quickPrompt('I have a headache and fever. What should I do?')">🤒 Headache &amp; Fever</button>
           <button class="quick-btn" onclick="quickPrompt('What are the symptoms of diabetes?')">🩸 Diabetes Symptoms</button>
           <button class="quick-btn" onclick="quickPrompt('Give me tips for better sleep.')">😴 Sleep Tips</button>
           <button class="quick-btn" onclick="quickPrompt('How do I manage stress and anxiety?')">🧘 Stress Management</button>
         </div>
       </div>
-
     </div>
 
-    <!-- Input area -->
+    <!-- Fixed bottom input -->
     <div class="input-area">
       <div class="input-box">
         <textarea
@@ -115,44 +112,3 @@
   <script src="js/chat.js"></script>
 </body>
 </html>
-    <meta charset="UTF-8">
-    <title>HA! - Professional AI</title>
-    <link rel="stylesheet" href="style.css">
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-</head>
-<body class="chat-body">
-
-    <div class="sidebar">
-        <div class="logo">🩺 HA! </div>
-        <button class="btn-new-chat" onclick="location.reload()">+ New Chat</button>
-        
-        <div class="sidebar-footer">
-            <div class="user-info">
-                User: <span id="display-name">Guest</span>
-            </div>
-            <a href="login.html" class="logout-link" onclick="localStorage.clear()">Log Out</a>
-        </div>
-    </div>
-
-    <div class="main-chat">
-        <div class="chat-container" id="chat-box">
-            <div class="message-row ai">
-                <div class="message-content">
-                    <div class="avatar ai">AI</div>
-                    <div class="text">Hello! I am your HA! Health Assistant. How can I help you today?</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="input-area">
-            <div class="input-box">
-                <input type="text" id="user-input" placeholder="Describe your symptoms..." onkeypress="handleEnter(event)">
-                <button onclick="sendMessage()">➤</button>
-            </div>
-        </div>
-    </div>
-
-    <script src="script.js"></script>
-</body>
-</html>
-
