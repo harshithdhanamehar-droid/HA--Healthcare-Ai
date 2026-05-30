@@ -1,0 +1,8 @@
+{
+  "version": 2,
+  "root": "frontend",
+  "outputDirectory": "frontend",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
