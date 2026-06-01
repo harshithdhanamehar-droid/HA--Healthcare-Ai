@@ -507,3 +507,57 @@ async def emergency_alert(data: dict):
         "instructions": instructions,
         "timestamp": datetime.now().isoformat(),
     }
+
+# ─── ADMIN ROUTES ─────────────────────────────────────────────────────────
+
+@app.get("/admin/users")
+def get_all_users():
+    """Get all users from the database"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT id, name, phone, location, created_at
+        FROM users
+        ORDER BY created_at DESC
+    """)
+    
+    users = []
+    for row in cursor.fetchall():
+        user_id, name, phone, location, created_at = row
+        users.append({
+            "id": user_id,
+            "name": name,
+            "phone": phone,
+            "location": location,
+            "created_at": created_at
+        })
+    
+    conn.close()
+    return {"users": users, "count": len(users)}
+
+@app.get("/admin/chats")
+def get_all_chats():
+    """Get all chat history records from the database"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT user_phone, chat_id, role, message, created_at
+        FROM chat_history
+        ORDER BY created_at DESC
+    """)
+    
+    chats = []
+    for row in cursor.fetchall():
+        user_phone, chat_id, role, message, created_at = row
+        chats.append({
+            "user_phone": user_phone,
+            "chat_id": chat_id,
+            "role": role,
+            "message": message,
+            "created_at": created_at
+        })
+    
+    conn.close()
+    return {"chats": chats, "count": len(chats)}
