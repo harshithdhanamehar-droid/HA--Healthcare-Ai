@@ -8,7 +8,8 @@
   align-items: center;
   justify-content: center;
   background: var(--bg-primary);
-  overflow: hidden;
+  overflow-x: hidden;   /* allow vertical scroll, block horizontal only */
+  overflow-y: auto;
   position: relative;
 }
 
@@ -236,18 +237,31 @@
 
 /* ── Responsive ─────────────────────────────────────────────────── */
 @media (max-width: 768px) {
+  /* Body must start at top and scroll freely */
+  .login-body {
+    align-items: flex-start;
+    padding: 20px 0;
+  }
+
   .login-wrapper {
     grid-template-columns: 1fr;
     margin: 0;
     border-radius: 0;
-    min-height: 100vh;
+    /* No min-height: 100vh — let content define the height */
+    width: 100%;
   }
+
   .login-brand {
-    padding: 40px 28px 32px;
+    padding: 32px 24px 28px;
     border-right: none;
     border-bottom: 1px solid var(--border-color);
   }
   .brand-logo { font-size: 40px; }
   .brand-tagline { font-size: 20px; }
-  .login-card { padding: 32px 28px 40px; }
+
+  .login-card {
+    padding: 28px 24px 40px;
+    /* Let the card grow to fit its content — no fixed height */
+    justify-content: flex-start;
+  }
 }
