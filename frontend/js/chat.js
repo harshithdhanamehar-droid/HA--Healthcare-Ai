@@ -11,19 +11,27 @@
 
 let isWaiting = false;
 let currentChatId = null;
-let userPhone = null;
+
+// ── Helper: always read phone fresh from localStorage ─────────────
+// Never cache userPhone in a variable — localStorage is the source
+// of truth. Reading it inline prevents stale-null bugs.
+function getUserPhone() {
+  return localStorage.getItem("ha_phone") || null;
+}
 
 // ── Initialize on page load ───────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
-  // Get user info from localStorage
-  userPhone = localStorage.getItem("ha_phone");
-  
-  // Generate new chat ID for new session
+  // Generate new chat ID for this session
   currentChatId = generateChatId();
-  
-  // Load chat history if user is logged in
-  if (userPhone) {
+
+  const phone = getUserPhone();
+  console.log("[HA! Chat] Init — ha_phone from localStorage:", phone);
+  console.log("[HA! Chat] Init — currentChatId:", currentChatId);
+
+  if (phone) {
     loadChatHistory();
+  } else {
+    console.warn("[HA! Chat] No ha_phone in localStorage — chat history will NOT be saved.");
   }
 });
 
@@ -34,13 +42,14 @@ function generateChatId() {
 
 // ── Load Chat History ─────────────────────────────────────────────
 async function loadChatHistory() {
-  if (!userPhone) return;
+  const phone = getUserPhone();
+  if (!phone) return;
   
   try {
-    const data = await apiGet(`/chat/history/${userPhone}`);
+    const data = await apiGet(`/chat/history/${phone}`);
     displayChatHistory(data.sessions);
   } catch (err) {
-    console.error("Failed to load chat history:", err);
+    console.error("[HA! Chat] Failed to load chat history:", err);
   }
 }
 
@@ -153,7 +162,7 @@ async function deleteChatSession(chatId) {
     loadChatHistory();
     
   } catch (err) {
-    console.error("Failed to delete chat session:", err);
+    console.error("[HA! Chat] Failed to delete chat session:", err);
     alert("Failed to delete chat session");
   }
 }
@@ -239,7 +248,30 @@ async function sendMessage() {
   const message  = inputEl ? inputEl.value.trim() : "";
   const username = localStorage.getItem("ha_name") || "Patient";
 
+  // Always read phone fresh — never use a cached variable
+  const phone = getUserPhone();
+
+  // Always ensure a chat ID exists before sending
+  if (!currentChatId) {
+    currentChatId = generateChatId();
+  }
+
   if (!message) return;
+
+  // Build the exact payload that will be sent to POST /chat
+  const payload = {
+    message:    message,
+    username:   username,
+    user_phone: phone,
+    chat_id:    currentChatId,
+  };
+
+  // Log the full payload so it is visible in DevTools → Console
+  console.log("Chat payload:", payload);
+
+  if (!phone) {
+    console.warn("user_phone is null — chat will NOT be saved. Log out and log in again.");
+  }
 
   // Hide the static welcome screen on first message
   const welcomeScreen = document.getElementById("welcome-screen");
@@ -258,17 +290,12 @@ async function sendMessage() {
   if (sendBtn) sendBtn.disabled = true;
 
   try {
-    const data = await apiPost("/chat", { 
-      message, 
-      username,
-      user_phone: userPhone,
-      chat_id: currentChatId
-    });
+    const data = await apiPost("/chat", payload);
     removeElement(thinkingId);
     appendMessage("ai", data.response);
-    
-    // Reload chat history to show new/updated session
-    if (userPhone) {
+
+    // Reload history sidebar so the new session appears immediately
+    if (phone) {
       loadChatHistory();
     }
   } catch (err) {
