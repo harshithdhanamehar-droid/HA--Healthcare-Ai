@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
 import os
-
+import sqlite3
 import uuid
 from datetime import datetime
 
@@ -19,9 +19,57 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ─── DATABASE SETUP ──────────────────────────────────────────────────────────
+DB_PATH = "ha_healthcare.db"
+
+def init_database():
+    """Initialize SQLite database with required tables"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Create users table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            phone TEXT UNIQUE NOT NULL,
+            location TEXT,
+            created_at TEXT NOT NULL
+        )
+    """)
+    
+    # Create chat_history table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS chat_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_phone TEXT NOT NULL,
+            chat_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            message TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (user_phone) REFERENCES users(phone)
+        )
+    """)
+    
+    # Create index for faster queries
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_chat_history_phone 
+        ON chat_history(user_phone)
+    """)
+    
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_chat_history_chat_id 
+        ON chat_history(chat_id)
+    """)
+    
+    conn.commit()
+    conn.close()
+
+# Initialize database on startup
+init_database()
+
 # ─── IN-MEMORY STORES ────────────────────────────────────────────────────────
 appointments_db: List[dict] = []
-users_db: dict = {}
 
 # ─── DOCTORS DATA ─────────────────────────────────────────────────────────────
 DOCTORS = [
@@ -127,6 +175,8 @@ DOCTORS = [
 class ChatRequest(BaseModel):
     message: str
     username: Optional[str] = "Patient"
+    user_phone: Optional[str] = None
+    chat_id: Optional[str] = None
 
 class SymptomRequest(BaseModel):
     symptoms: List[str]
@@ -189,15 +239,40 @@ def health_check():
 
 @app.post("/auth/register")
 def register(user: UserRegister):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Check if user already exists
+    cursor.execute("SELECT id, name, location FROM users WHERE phone = ?", (user.phone,))
+    existing_user = cursor.fetchone()
+    
+    if existing_user:
+        conn.close()
+        return {
+            "success": True,
+            "user_id": existing_user[0],
+            "name": existing_user[1],
+            "message": "User already exists"
+        }
+    
+    # Create new user
     user_id = str(uuid.uuid4())[:8]
-    users_db[user.phone] = {
-        "id": user_id,
+    created_at = datetime.now().isoformat()
+    
+    cursor.execute("""
+        INSERT INTO users (id, name, phone, location, created_at)
+        VALUES (?, ?, ?, ?, ?)
+    """, (user_id, user.name, user.phone, user.location, created_at))
+    
+    conn.commit()
+    conn.close()
+    
+    return {
+        "success": True,
+        "user_id": user_id,
         "name": user.name,
-        "phone": user.phone,
-        "location": user.location,
-        "joined": datetime.now().isoformat(),
+        "message": "User registered successfully"
     }
-    return {"success": True, "user_id": user_id, "name": user.name}
 
 @app.post("/chat")
 async def chat(data: ChatRequest):
@@ -209,6 +284,28 @@ async def chat(data: ChatRequest):
         f"You are speaking with patient: {data.username}."
     )
     reply = call_ai(data.message, system_prompt)
+    
+    # Save chat history to database if user_phone and chat_id are provided
+    if data.user_phone and data.chat_id:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        timestamp = datetime.now().isoformat()
+        
+        # Save user message
+        cursor.execute("""
+            INSERT INTO chat_history (user_phone, chat_id, role, message, created_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, (data.user_phone, data.chat_id, "user", data.message, timestamp))
+        
+        # Save AI response
+        cursor.execute("""
+            INSERT INTO chat_history (user_phone, chat_id, role, message, created_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, (data.user_phone, data.chat_id, "assistant", reply, timestamp))
+        
+        conn.commit()
+        conn.close()
+    
     return {"response": reply, "timestamp": datetime.now().isoformat()}
 
 @app.post("/symptom-check")
@@ -303,6 +400,93 @@ def get_health_tips():
         {"id": 6, "category": "Prevention", "tip": "Wash hands frequently to prevent infections.", "icon": "🧼"},
     ]
     return {"tips": tips}
+
+# ─── CHAT HISTORY ROUTES ──────────────────────────────────────────────────────
+
+@app.get("/chat/history/{phone}")
+def get_chat_history(phone: str):
+    """Get all chat sessions for a user"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Get distinct chat sessions with first message preview
+    cursor.execute("""
+        SELECT 
+            chat_id,
+            MIN(created_at) as first_message_time,
+            (SELECT message FROM chat_history 
+             WHERE chat_id = ch.chat_id AND role = 'user' 
+             ORDER BY created_at ASC LIMIT 1) as preview
+        FROM chat_history ch
+        WHERE user_phone = ?
+        GROUP BY chat_id
+        ORDER BY first_message_time DESC
+    """, (phone,))
+    
+    sessions = []
+    for row in cursor.fetchall():
+        chat_id, created_at, preview = row
+        # Truncate preview to 60 characters
+        preview_text = preview[:60] + "..." if preview and len(preview) > 60 else preview
+        sessions.append({
+            "chat_id": chat_id,
+            "preview": preview_text,
+            "created_at": created_at
+        })
+    
+    conn.close()
+    return {"sessions": sessions, "count": len(sessions)}
+
+@app.get("/chat/session/{chat_id}")
+def get_chat_session(chat_id: str):
+    """Get all messages from a specific chat session"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT id, role, message, created_at
+        FROM chat_history
+        WHERE chat_id = ?
+        ORDER BY created_at ASC
+    """, (chat_id,))
+    
+    messages = []
+    for row in cursor.fetchall():
+        msg_id, role, message, created_at = row
+        messages.append({
+            "id": msg_id,
+            "role": role,
+            "message": message,
+            "created_at": created_at
+        })
+    
+    conn.close()
+    
+    if not messages:
+        raise HTTPException(status_code=404, detail="Chat session not found")
+    
+    return {"chat_id": chat_id, "messages": messages, "count": len(messages)}
+
+@app.delete("/chat/session/{chat_id}")
+def delete_chat_session(chat_id: str):
+    """Delete a specific chat session"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Check if session exists
+    cursor.execute("SELECT COUNT(*) FROM chat_history WHERE chat_id = ?", (chat_id,))
+    count = cursor.fetchone()[0]
+    
+    if count == 0:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Chat session not found")
+    
+    # Delete all messages in the session
+    cursor.execute("DELETE FROM chat_history WHERE chat_id = ?", (chat_id,))
+    conn.commit()
+    conn.close()
+    
+    return {"success": True, "message": "Chat session deleted successfully"}
 
 @app.post("/emergency/alert")
 async def emergency_alert(data: dict):

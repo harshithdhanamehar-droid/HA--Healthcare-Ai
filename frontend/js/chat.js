@@ -10,6 +10,170 @@
 "use strict";
 
 let isWaiting = false;
+let currentChatId = null;
+let userPhone = null;
+
+// ── Initialize on page load ───────────────────────────────────────
+document.addEventListener("DOMContentLoaded", () => {
+  // Get user info from localStorage
+  userPhone = localStorage.getItem("ha_phone");
+  
+  // Generate new chat ID for new session
+  currentChatId = generateChatId();
+  
+  // Load chat history if user is logged in
+  if (userPhone) {
+    loadChatHistory();
+  }
+});
+
+// ── Generate unique chat ID ───────────────────────────────────────
+function generateChatId() {
+  return "chat_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
+}
+
+// ── Load Chat History ─────────────────────────────────────────────
+async function loadChatHistory() {
+  if (!userPhone) return;
+  
+  try {
+    const data = await apiGet(`/chat/history/${userPhone}`);
+    displayChatHistory(data.sessions);
+  } catch (err) {
+    console.error("Failed to load chat history:", err);
+  }
+}
+
+// ── Display Chat History ──────────────────────────────────────────
+function displayChatHistory(sessions) {
+  const historyList = document.getElementById("history-list");
+  const historyEmpty = document.getElementById("history-empty");
+  
+  if (!historyList) return;
+  
+  // Clear existing items (except empty state)
+  historyList.querySelectorAll(".history-item").forEach(el => el.remove());
+  
+  if (!sessions || sessions.length === 0) {
+    if (historyEmpty) historyEmpty.style.display = "flex";
+    return;
+  }
+  
+  // Hide empty state
+  if (historyEmpty) historyEmpty.style.display = "none";
+  
+  // Add each session
+  sessions.forEach(session => {
+    const item = document.createElement("div");
+    item.className = "history-item";
+    item.dataset.chatId = session.chat_id;
+    
+    const content = document.createElement("div");
+    content.className = "history-content";
+    content.onclick = () => loadChatSession(session.chat_id);
+    
+    const icon = document.createElement("div");
+    icon.className = "history-icon";
+    icon.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
+    
+    const text = document.createElement("div");
+    text.className = "history-text";
+    
+    const preview = document.createElement("div");
+    preview.className = "history-preview";
+    preview.textContent = session.preview || "New conversation";
+    
+    const time = document.createElement("div");
+    time.className = "history-time";
+    time.textContent = formatChatTime(session.created_at);
+    
+    text.appendChild(preview);
+    text.appendChild(time);
+    content.appendChild(icon);
+    content.appendChild(text);
+    
+    const deleteBtn = document.createElement("button");
+    deleteBtn.className = "history-delete";
+    deleteBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
+    deleteBtn.onclick = (e) => {
+      e.stopPropagation();
+      deleteChatSession(session.chat_id);
+    };
+    
+    item.appendChild(content);
+    item.appendChild(deleteBtn);
+    historyList.insertBefore(item, historyEmpty);
+  });
+}
+
+// ── Load Chat Session ─────────────────────────────────────────────
+async function loadChatSession(chatId) {
+  try {
+    const data = await apiGet(`/chat/session/${chatId}`);
+    
+    // Clear current chat
+    const chatBox = document.getElementById("chat-box");
+    const welcomeScreen = document.getElementById("welcome-screen");
+    
+    chatBox.querySelectorAll(".message-row").forEach(el => el.remove());
+    if (welcomeScreen) welcomeScreen.style.display = "none";
+    
+    // Set current chat ID
+    currentChatId = chatId;
+    
+    // Display all messages
+    data.messages.forEach(msg => {
+      appendMessage(msg.role === "user" ? "user" : "ai", msg.message, false);
+    });
+    
+    // Highlight active chat in history
+    document.querySelectorAll(".history-item").forEach(item => {
+      item.classList.toggle("active", item.dataset.chatId === chatId);
+    });
+    
+  } catch (err) {
+    console.error("Failed to load chat session:", err);
+    alert("Failed to load chat session");
+  }
+}
+
+// ── Delete Chat Session ───────────────────────────────────────────
+async function deleteChatSession(chatId) {
+  if (!confirm("Delete this chat? This action cannot be undone.")) return;
+  
+  try {
+    await apiDelete(`/chat/session/${chatId}`);
+    
+    // If deleted chat was active, start new chat
+    if (currentChatId === chatId) {
+      newChat();
+    }
+    
+    // Reload history
+    loadChatHistory();
+    
+  } catch (err) {
+    console.error("Failed to delete chat session:", err);
+    alert("Failed to delete chat session");
+  }
+}
+
+// ── Format Chat Time ──────────────────────────────────────────────
+function formatChatTime(isoString) {
+  const date = new Date(isoString);
+  const now = new Date();
+  const diffMs = now - date;
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+  
+  if (diffMins < 1) return "Just now";
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  
+  return date.toLocaleDateString("en-IN", { month: "short", day: "numeric" });
+}
 
 // ── New Chat ──────────────────────────────────────────────────────
 // Clears messages and shows the static welcome screen that already
@@ -32,6 +196,14 @@ function newChat() {
     input.value = "";
     input.style.height = "auto";
   }
+  
+  // Generate new chat ID
+  currentChatId = generateChatId();
+  
+  // Remove active state from all history items
+  document.querySelectorAll(".history-item").forEach(item => {
+    item.classList.remove("active");
+  });
 }
 
 // ── Quick Prompt ──────────────────────────────────────────────────
@@ -86,9 +258,19 @@ async function sendMessage() {
   if (sendBtn) sendBtn.disabled = true;
 
   try {
-    const data = await apiPost("/chat", { message, username });
+    const data = await apiPost("/chat", { 
+      message, 
+      username,
+      user_phone: userPhone,
+      chat_id: currentChatId
+    });
     removeElement(thinkingId);
     appendMessage("ai", data.response);
+    
+    // Reload chat history to show new/updated session
+    if (userPhone) {
+      loadChatHistory();
+    }
   } catch (err) {
     removeElement(thinkingId);
     appendMessage(
@@ -106,11 +288,11 @@ async function sendMessage() {
 // Appends ONE .message-row into #chat-box.
 // Matches the exact CSS structure in chat.css:
 //   .message-row > .message-content > .avatar + div > .msg-text + .msg-time
-function appendMessage(role, text) {
+function appendMessage(role, text, scroll = true) {
   const chatBox = document.getElementById("chat-box");
   if (!chatBox) return;
 
-  const isAI    = role === "ai";
+  const isAI    = role === "ai" || role === "assistant";
   const username = localStorage.getItem("ha_name") || "You";
   const initial  = username.charAt(0).toUpperCase();
   const now      = new Date().toLocaleTimeString("en-IN", {
@@ -155,7 +337,9 @@ function appendMessage(role, text) {
   chatBox.appendChild(row);
 
   // Scroll to latest message
-  chatBox.scrollTop = chatBox.scrollHeight;
+  if (scroll) {
+    chatBox.scrollTop = chatBox.scrollHeight;
+  }
 }
 
 // ── Append thinking indicator ─────────────────────────────────────

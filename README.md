@@ -50,19 +50,7 @@ HA-Healthcare-AI/
 
 ## Setup & Run
 
-### 1. Install Ollama (AI Engine)
-
-Download from: https://ollama.com/download
-
-```bash
-# Pull the AI model
-ollama pull phi3
-
-# Start Ollama server
-ollama serve
-```
-
-### 2. Backend Setup
+### 1. Backend Setup
 
 ```bash
 cd backend
@@ -75,6 +63,9 @@ venv\Scripts\activate        # Windows
 # Install dependencies
 pip install -r requirements.txt
 
+# Create .env file with your Groq API key
+echo GROQ_API_KEY=your_groq_api_key_here > .env
+
 # Start the backend
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
@@ -82,17 +73,33 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 Backend runs at: http://localhost:8000
 API Docs at: http://localhost:8000/docs
 
-### 3. Frontend
+**Note:** SQLite database (`ha_healthcare.db`) will be created automatically on first run.
 
-Open `frontend/index.html` in your browser.
+### 2. Frontend
 
-For best results, serve with a local server:
+For local development, update `API_BASE` in `frontend/js/app.js`:
+```javascript
+const API_BASE = "http://localhost:8000";  // Local development
+```
+
+Serve with a local server:
 ```bash
-# Using Python
 cd frontend
 python -m http.server 3000
 # Open: http://localhost:3000
 ```
+
+### 3. Deployment
+
+**Backend (Render):**
+- Deploy from GitHub
+- Add environment variable: `GROQ_API_KEY`
+- SQLite database persists on Render disk
+
+**Frontend (Vercel):**
+- Deploy from GitHub
+- Update `API_BASE` in `app.js` to your Render backend URL
+- Automatic deployments on push
 
 ---
 
@@ -101,7 +108,10 @@ python -m http.server 3000
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/auth/register` | Register patient |
-| POST | `/chat` | AI health chat |
+| POST | `/chat` | AI health chat (saves to history) |
+| GET  | `/chat/history/{phone}` | Get all chat sessions for user |
+| GET  | `/chat/session/{chat_id}` | Get messages from specific chat |
+| DELETE | `/chat/session/{chat_id}` | Delete a chat session |
 | POST | `/symptom-check` | Analyze symptoms |
 | GET  | `/doctors` | List all doctors |
 | GET  | `/doctors/{id}` | Get doctor details |
@@ -115,16 +125,18 @@ python -m http.server 3000
 
 ## Features
 
-- ✅ AI-powered health chat (Ollama + phi3)
+- ✅ AI-powered health chat (Groq Cloud API)
+- ✅ **Chat History** — Save and load previous conversations
+- ✅ **User Database** — SQLite database for user management
 - ✅ Symptom analysis with risk assessment
 - ✅ 8 specialist doctors with real-time booking
 - ✅ Appointment management (book/cancel)
 - ✅ Emergency SOS with AI first-aid guide
 - ✅ Emergency helpline numbers (108, 102, 100, 101)
 - ✅ Responsive design (mobile + desktop)
-- ✅ Dark mode UI
+- ✅ Dark mode UI (Gemini AI inspired)
 - ✅ Input validation & error handling
-- ✅ Offline-first login (works without backend)
+- ✅ Cloud deployment ready (Render + Vercel)
 
 ---
 
@@ -134,9 +146,39 @@ python -m http.server 3000
 |-------|-----------|
 | Frontend | HTML5, CSS3, Vanilla JS |
 | Backend | Python, FastAPI |
-| AI Engine | Ollama (phi3 model) |
-| Styling | Custom CSS with CSS Variables |
+| Database | SQLite |
+| AI Engine | Groq Cloud API (llama-3.1-8b-instant) |
+| Styling | Custom CSS with CSS Variables (Gemini AI inspired) |
 | Markdown | marked.js |
+| Deployment | Vercel (Frontend) + Render (Backend) |
+
+---
+
+## Database Schema
+
+### Users Table
+```sql
+CREATE TABLE users (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    phone TEXT UNIQUE NOT NULL,
+    location TEXT,
+    created_at TEXT NOT NULL
+);
+```
+
+### Chat History Table
+```sql
+CREATE TABLE chat_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_phone TEXT NOT NULL,
+    chat_id TEXT NOT NULL,
+    role TEXT NOT NULL,  -- 'user' or 'assistant'
+    message TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (user_phone) REFERENCES users(phone)
+);
+```
 
 ---
 
