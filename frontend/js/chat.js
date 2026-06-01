@@ -25,13 +25,12 @@ document.addEventListener("DOMContentLoaded", () => {
   currentChatId = generateChatId();
 
   const phone = getUserPhone();
-  console.log("[HA! Chat] Init — ha_phone from localStorage:", phone);
-  console.log("[HA! Chat] Init — currentChatId:", currentChatId);
+  console.log("HA! Chat init — ha_phone:", phone, "| chat_id:", currentChatId);
 
   if (phone) {
     loadChatHistory();
   } else {
-    console.warn("[HA! Chat] No ha_phone in localStorage — chat history will NOT be saved.");
+    console.warn("HA! Chat init — ha_phone is null. Log out and log in again.");
   }
 });
 
@@ -43,76 +42,100 @@ function generateChatId() {
 // ── Load Chat History ─────────────────────────────────────────────
 async function loadChatHistory() {
   const phone = getUserPhone();
-  if (!phone) return;
-  
+
+  console.log("loadChatHistory: started, phone =", phone);
+
+  if (!phone) {
+    console.warn("loadChatHistory: no phone in localStorage, aborting");
+    return;
+  }
+
   try {
+    console.log("loadChatHistory: calling GET /chat/history/" + phone);
     const data = await apiGet(`/chat/history/${phone}`);
-    displayChatHistory(data.sessions);
+    console.log("loadChatHistory: API response =", data);
+    console.log("loadChatHistory: sessions count =", data.sessions ? data.sessions.length : 0);
+    displayChatHistory(data.sessions || []);
   } catch (err) {
-    console.error("[HA! Chat] Failed to load chat history:", err);
+    console.error("loadChatHistory: API call failed —", err.message);
   }
 }
 
 // ── Display Chat History ──────────────────────────────────────────
 function displayChatHistory(sessions) {
-  const historyList = document.getElementById("history-list");
+  console.log("displayChatHistory: called with", sessions ? sessions.length : 0, "sessions");
+
+  const historyList  = document.getElementById("history-list");
   const historyEmpty = document.getElementById("history-empty");
-  
-  if (!historyList) return;
-  
-  // Clear existing items (except empty state)
+
+  if (!historyList) {
+    console.error("displayChatHistory: #history-list element NOT FOUND in DOM");
+    return;
+  }
+
+  // Remove only previously rendered history items — leave #history-empty in place
   historyList.querySelectorAll(".history-item").forEach(el => el.remove());
-  
+
   if (!sessions || sessions.length === 0) {
+    console.log("displayChatHistory: no sessions — showing empty state");
     if (historyEmpty) historyEmpty.style.display = "flex";
     return;
   }
-  
-  // Hide empty state
+
+  // Hide the empty-state placeholder
   if (historyEmpty) historyEmpty.style.display = "none";
-  
-  // Add each session
-  sessions.forEach(session => {
+
+  console.log("displayChatHistory: rendering", sessions.length, "session(s)");
+
+  sessions.forEach((session, index) => {
+    console.log("displayChatHistory: session[" + index + "] =", session.chat_id, "|", session.preview);
+
     const item = document.createElement("div");
     item.className = "history-item";
     item.dataset.chatId = session.chat_id;
-    
+
     const content = document.createElement("div");
     content.className = "history-content";
     content.onclick = () => loadChatSession(session.chat_id);
-    
+
     const icon = document.createElement("div");
     icon.className = "history-icon";
     icon.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
-    
+
     const text = document.createElement("div");
     text.className = "history-text";
-    
+
     const preview = document.createElement("div");
     preview.className = "history-preview";
     preview.textContent = session.preview || "New conversation";
-    
+
     const time = document.createElement("div");
     time.className = "history-time";
     time.textContent = formatChatTime(session.created_at);
-    
+
     text.appendChild(preview);
     text.appendChild(time);
     content.appendChild(icon);
     content.appendChild(text);
-    
+
     const deleteBtn = document.createElement("button");
     deleteBtn.className = "history-delete";
+    deleteBtn.setAttribute("aria-label", "Delete chat");
     deleteBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
     deleteBtn.onclick = (e) => {
       e.stopPropagation();
       deleteChatSession(session.chat_id);
     };
-    
+
     item.appendChild(content);
     item.appendChild(deleteBtn);
-    historyList.insertBefore(item, historyEmpty);
+
+    // Append at the end of the list (before the hidden empty-state node)
+    historyList.appendChild(item);
   });
+
+  console.log("displayChatHistory: done — DOM now has",
+    historyList.querySelectorAll(".history-item").length, "item(s)");
 }
 
 // ── Load Chat Session ─────────────────────────────────────────────
