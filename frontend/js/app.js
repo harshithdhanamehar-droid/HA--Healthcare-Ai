@@ -8,7 +8,16 @@
 
 "use strict";
 
-const API_BASE = "https://ha-healthcare-ai.onrender.com";
+// ── API base URL — auto-detected by environment ───────────────────
+// file:// or localhost  →  local backend at 127.0.0.1:8000
+// Vercel / any HTTPS   →  production Render backend
+const API_BASE = (
+  window.location.protocol === "file:" ||
+  window.location.hostname === "localhost" ||
+  window.location.hostname === "127.0.0.1"
+)
+  ? "http://127.0.0.1:8000"
+  : "https://ha-healthcare-ai.onrender.com";
 
 // ── Auth Guard ────────────────────────────────────────────────────
 // Runs immediately. Redirects to login if not authenticated.
