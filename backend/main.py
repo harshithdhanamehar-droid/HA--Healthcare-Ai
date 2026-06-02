@@ -572,26 +572,61 @@ def get_all_users():
 
 @app.get("/admin/chats")
 def get_all_chats():
-    """Get all chat history records from the database"""
+    """Get all chat sessions grouped by chat_id with message counts"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    
+
     cursor.execute("""
-        SELECT user_phone, chat_id, role, message, created_at
-        FROM chat_history
+        SELECT
+            user_phone,
+            chat_id,
+            COUNT(*) as message_count,
+            MIN(created_at) as created_at,
+            (SELECT message FROM chat_history
+             WHERE chat_id = ch.chat_id AND role = 'user'
+             ORDER BY created_at ASC LIMIT 1) as first_message
+        FROM chat_history ch
+        GROUP BY chat_id
         ORDER BY created_at DESC
     """)
-    
+
     chats = []
     for row in cursor.fetchall():
-        user_phone, chat_id, role, message, created_at = row
+        user_phone, chat_id, message_count, created_at, first_message = row
         chats.append({
             "user_phone": user_phone,
             "chat_id": chat_id,
-            "role": role,
-            "message": message,
-            "created_at": created_at
+            "message_count": message_count,
+            "created_at": created_at,
+            "first_message": (first_message or "")[:80]
         })
-    
+
     conn.close()
     return {"chats": chats, "count": len(chats)}
+
+
+@app.get("/admin/stats")
+def get_admin_stats():
+    """Dashboard summary stats"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT COUNT(*) FROM users")
+    total_users = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(DISTINCT chat_id) FROM chat_history")
+    total_chats = cursor.fetchone()[0]
+
+    # Active users = users who chatted in the last 7 days
+    cursor.execute("""
+        SELECT COUNT(DISTINCT user_phone) FROM chat_history
+        WHERE created_at >= datetime('now', '-7 days')
+    """)
+    active_users = cursor.fetchone()[0]
+
+    conn.close()
+    return {
+        "total_users": total_users,
+        "total_chats": total_chats,
+        "active_users": active_users
+    }

@@ -3,423 +3,228 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>HA! — Admin Panel</title>
+  <title>HA! — Admin Dashboard</title>
   <link rel="stylesheet" href="css/style.css" />
-  <link rel="stylesheet" href="css/chat.css" />
+  <link rel="stylesheet" href="css/admin.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
-  <style>
-    /* Admin-specific styles */
-    .admin-container {
-      padding: 40px 24px;
-      max-width: 1400px;
-      margin: 0 auto;
-    }
-
-    .admin-header {
-      margin-bottom: 40px;
-    }
-
-    .admin-header h1 {
-      font-size: 32px;
-      font-weight: 700;
-      color: var(--text-primary);
-      margin-bottom: 8px;
-    }
-
-    .admin-header p {
-      font-size: 14px;
-      color: var(--text-muted);
-    }
-
-    .stats-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 16px;
-      margin-bottom: 40px;
-    }
-
-    .stat-card {
-      background: var(--glass-bg);
-      border: 1px solid var(--glass-border);
-      border-radius: var(--radius-lg);
-      padding: 20px;
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
-      transition: all 0.25s ease;
-    }
-
-    .stat-card:hover {
-      background: var(--glass-hover);
-      border-color: rgba(0, 212, 170, 0.3);
-      box-shadow: 0 0 16px rgba(0, 212, 170, 0.08);
-    }
-
-    .stat-label {
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 8px;
-    }
-
-    .stat-value {
-      font-size: 28px;
-      font-weight: 700;
-      color: var(--accent);
-    }
-
-    .section {
-      margin-bottom: 40px;
-    }
-
-    .section-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 20px;
-      padding-bottom: 12px;
-      border-bottom: 1px solid var(--glass-border);
-    }
-
-    .section-title {
-      font-size: 20px;
-      font-weight: 600;
-      color: var(--text-primary);
-    }
-
-    .search-box {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-    }
-
-    .search-input {
-      background: var(--glass-bg);
-      border: 1px solid var(--glass-border);
-      border-radius: var(--radius-md);
-      padding: 10px 14px;
-      color: var(--text-primary);
-      font-size: 13px;
-      width: 200px;
-      transition: all 0.25s ease;
-    }
-
-    .search-input:focus {
-      outline: none;
-      border-color: rgba(0, 212, 170, 0.4);
-      background: rgba(0, 212, 170, 0.05);
-      box-shadow: 0 0 12px rgba(0, 212, 170, 0.08);
-    }
-
-    .search-input::placeholder {
-      color: var(--text-muted);
-    }
-
-    .table-wrapper {
-      background: var(--glass-bg);
-      border: 1px solid var(--glass-border);
-      border-radius: var(--radius-lg);
-      overflow: hidden;
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
-    }
-
-    .table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 13px;
-    }
-
-    .table thead {
-      background: rgba(0, 212, 170, 0.05);
-      border-bottom: 1px solid var(--glass-border);
-    }
-
-    .table th {
-      padding: 14px 16px;
-      text-align: left;
-      font-weight: 600;
-      color: var(--text-secondary);
-      text-transform: uppercase;
-      letter-spacing: 0.3px;
-      font-size: 11px;
-    }
-
-    .table td {
-      padding: 12px 16px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-      color: var(--text-primary);
-    }
-
-    .table tbody tr:hover {
-      background: rgba(0, 212, 170, 0.03);
-    }
-
-    .table tbody tr:last-child td {
-      border-bottom: none;
-    }
-
-    .phone-badge {
-      background: rgba(0, 212, 170, 0.1);
-      border: 1px solid rgba(0, 212, 170, 0.2);
-      color: var(--accent);
-      padding: 4px 10px;
-      border-radius: 12px;
-      font-size: 12px;
-      font-weight: 500;
-      display: inline-block;
-    }
-
-    .role-badge {
-      display: inline-block;
-      padding: 4px 10px;
-      border-radius: 12px;
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.3px;
-    }
-
-    .role-badge.user {
-      background: rgba(124, 58, 237, 0.15);
-      color: #c4b5fd;
-    }
-
-    .role-badge.assistant {
-      background: rgba(0, 212, 170, 0.15);
-      color: var(--accent);
-    }
-
-    .message-preview {
-      max-width: 300px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      color: var(--text-secondary);
-    }
-
-    .timestamp {
-      font-size: 12px;
-      color: var(--text-muted);
-    }
-
-    .empty-state {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 60px 24px;
-      text-align: center;
-      color: var(--text-muted);
-    }
-
-    .empty-state svg {
-      margin-bottom: 16px;
-      opacity: 0.3;
-    }
-
-    .empty-state p {
-      font-size: 14px;
-    }
-
-    .loading {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 40px;
-      gap: 8px;
-      color: var(--text-muted);
-    }
-
-    .loading span {
-      display: inline-block;
-      width: 6px;
-      height: 6px;
-      background: var(--accent);
-      border-radius: 50%;
-      animation: dotPulse 1.4s ease-in-out infinite;
-    }
-
-    .loading span:nth-child(1) { animation-delay: 0s; }
-    .loading span:nth-child(2) { animation-delay: 0.2s; }
-    .loading span:nth-child(3) { animation-delay: 0.4s; }
-
-    @keyframes dotPulse {
-      0%, 80%, 100% {
-        transform: scale(0.7);
-        opacity: 0.4;
-      }
-      40% {
-        transform: scale(1.1);
-        opacity: 1;
-      }
-    }
-
-    @media (max-width: 768px) {
-      .admin-container {
-        padding: 20px 12px;
-      }
-
-      .admin-header h1 {
-        font-size: 24px;
-      }
-
-      .stats-grid {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 12px;
-        margin-bottom: 24px;
-      }
-
-      .stat-card {
-        padding: 16px;
-      }
-
-      .stat-value {
-        font-size: 22px;
-      }
-
-      .section-header {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 12px;
-      }
-
-      .search-box {
-        width: 100%;
-      }
-
-      .search-input {
-        width: 100%;
-      }
-
-      .table {
-        font-size: 12px;
-      }
-
-      .table th,
-      .table td {
-        padding: 10px 12px;
-      }
-
-      .message-preview {
-        max-width: 150px;
-      }
-    }
-  </style>
 </head>
-<body class="app-body">
+<body>
 
-  <!-- SIDEBAR -->
-  <aside class="sidebar" id="sidebar">
-    <div class="sidebar-top">
-      <div class="sidebar-logo">
-        <span class="logo-ha">HA</span><span class="logo-exclaim">!</span>
+  <!-- ═══════════════════════════════════════════════════════════
+       ADMIN LOGIN GATE
+       Shown until correct PIN is entered (session-scoped)
+  ════════════════════════════════════════════════════════════════ -->
+  <div id="admin-login-overlay" class="admin-login-overlay">
+    <div class="admin-login-card">
+      <div class="login-icon">🔐</div>
+      <h2>Admin Access</h2>
+      <p>Enter your admin PIN to access the dashboard.</p>
+
+      <div class="form-group">
+        <label for="admin-pin">Admin PIN</label>
+        <input
+          type="password"
+          id="admin-pin"
+          class="admin-pin-input"
+          placeholder="• • • • • •"
+          maxlength="20"
+          autocomplete="off"
+          onkeydown="handlePinKeydown(event)"
+        />
       </div>
-      <button class="btn-new-chat" onclick="window.location.href='chat.html'">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        Back to Chat
+
+      <button class="btn-login-admin" onclick="submitAdminLogin()">
+        Unlock Dashboard
       </button>
+      <div id="login-error" class="login-error"></div>
+
+      <p style="margin-top:20px; font-size:12px; color:var(--text-muted);">
+        <a href="chat.html" style="color:var(--accent); text-decoration:none;">← Back to Chat</a>
+      </p>
     </div>
+  </div>
 
-    <nav class="sidebar-nav">
-      <a href="chat.html" class="nav-item">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-        AI Chat
-      </a>
-      <a href="symptoms.html" class="nav-item">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-        Symptom Checker
-      </a>
-      <a href="doctors.html" class="nav-item">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-        Find Doctors
-      </a>
-      <a href="appointments.html" class="nav-item">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-        My Appointments
-      </a>
-      <a href="admin.html" class="nav-item active">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
-        Admin Panel
-      </a>
-    </nav>
+  <!-- ═══════════════════════════════════════════════════════════
+       MAIN DASHBOARD  (hidden until authenticated)
+  ════════════════════════════════════════════════════════════════ -->
+  <div id="admin-dashboard" class="admin-body" style="display:none;">
 
-    <div class="sidebar-footer">
-      <button class="logout-btn" onclick="logout()">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-        Logout
-      </button>
-    </div>
-  </aside>
-
-  <!-- MAIN CONTENT -->
-  <main class="main-content">
-
-    <!-- Mobile header -->
-    <header class="mobile-header">
-      <button class="hamburger" onclick="toggleSidebar()">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-      </button>
-      <span class="mobile-logo"><span class="logo-ha">HA</span><span class="logo-exclaim">!</span></span>
-    </header>
-
-    <!-- Admin Content -->
-    <div class="chat-container" style="padding-bottom: 40px;">
-      <div class="admin-container">
-
-        <!-- Header -->
-        <div class="admin-header">
-          <h1>Admin Panel</h1>
-          <p>View all users and chat history</p>
+    <!-- ── Sidebar ─────────────────────────────────────────────── -->
+    <aside class="admin-sidebar" id="admin-sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-logo">
+          <span class="logo-ha">HA</span><span class="logo-exclaim">!</span>
         </div>
+        <div class="brand-label">Admin Dashboard</div>
+      </div>
 
-        <!-- Stats -->
+      <nav class="sidebar-nav">
+        <a href="admin.html" class="active">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+            <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+          </svg>
+          Overview
+        </a>
+        <a href="chat.html">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+          AI Chat
+        </a>
+        <a href="symptoms.html">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+          </svg>
+          Symptom Checker
+        </a>
+        <a href="doctors.html">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+          </svg>
+          Doctors
+        </a>
+        <a href="appointments.html">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/>
+            <line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+          </svg>
+          Appointments
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="sidebar-user">
+          <div class="sidebar-avatar" id="admin-avatar">A</div>
+          <div class="sidebar-user-info">
+            <span class="sidebar-user-name" id="admin-user-name">Admin</span>
+            <span class="sidebar-user-role">Administrator</span>
+          </div>
+        </div>
+        <button class="btn-logout" onclick="adminLogout()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+            <polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+          Logout
+        </button>
+      </div>
+    </aside>
+
+    <!-- ── Main ───────────────────────────────────────────────── -->
+    <div class="admin-main">
+
+      <!-- Top bar -->
+      <header class="admin-topbar">
+        <div class="topbar-left">
+          <button class="hamburger-admin" onclick="toggleAdminSidebar()" aria-label="Toggle sidebar">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/>
+              <line x1="3" y1="18" x2="21" y2="18"/>
+            </svg>
+          </button>
+          <h1 class="topbar-title">Dashboard Overview</h1>
+        </div>
+        <div class="topbar-right">
+          <button class="btn-refresh" id="btn-refresh" onclick="loadAll()">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="23 4 23 10 17 10"/>
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+            </svg>
+            <span class="refresh-label">Refresh</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Content -->
+      <div class="admin-content">
+
+        <!-- Stats Cards -->
         <div class="stats-grid">
-          <div class="stat-card">
+          <div class="stat-card users">
+            <div class="stat-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                <circle cx="9" cy="7" r="4"/>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+              </svg>
+            </div>
+            <div class="stat-value" id="stat-total-users">—</div>
             <div class="stat-label">Total Users</div>
-            <div class="stat-value" id="total-users">0</div>
+            <div class="stat-sublabel">Registered accounts</div>
           </div>
-          <div class="stat-card">
+
+          <div class="stat-card chats">
+            <div class="stat-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+              </svg>
+            </div>
+            <div class="stat-value" id="stat-total-chats">—</div>
             <div class="stat-label">Total Chats</div>
-            <div class="stat-value" id="total-chats">0</div>
+            <div class="stat-sublabel">Unique sessions</div>
+          </div>
+
+          <div class="stat-card active">
+            <div class="stat-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+              </svg>
+            </div>
+            <div class="stat-value" id="stat-active-users">—</div>
+            <div class="stat-label">Active Users</div>
+            <div class="stat-sublabel">Chatted in last 7 days</div>
           </div>
         </div>
 
-        <!-- Users Section -->
-        <div class="section">
-          <div class="section-header">
-            <h2 class="section-title">Users</h2>
-            <div class="search-box">
-              <input 
-                type="text" 
-                class="search-input" 
-                id="user-search" 
-                placeholder="Search by phone..."
-                onkeyup="filterUsers()"
-              />
+        <!-- ── Users Table ─────────────────────────────────────── -->
+        <div class="data-section">
+          <div class="section-toolbar">
+            <div class="section-toolbar-left">
+              <h2 class="section-title">Users</h2>
+              <span class="section-count" id="users-count">—</span>
+            </div>
+            <div class="section-toolbar-right">
+              <div class="search-wrap">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+                <input
+                  type="text"
+                  class="search-input"
+                  placeholder="Search by name or phone…"
+                  oninput="onUserSearch(event)"
+                  aria-label="Search users"
+                />
+              </div>
+              <button class="btn-export" onclick="exportUsersCSV()">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                Export CSV
+              </button>
             </div>
           </div>
 
-          <div class="table-wrapper">
-            <table class="table">
+          <div class="table-scroll">
+            <table class="admin-table">
               <thead>
                 <tr>
-                  <th>ID</th>
                   <th>Name</th>
-                  <th>Phone</th>
+                  <th>Phone Number</th>
                   <th>Location</th>
-                  <th>Created At</th>
+                  <th>Registration Date</th>
                 </tr>
               </thead>
               <tbody id="users-tbody">
                 <tr>
-                  <td colspan="5" class="loading">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                    Loading users...
+                  <td colspan="4" class="table-state">
+                    <div class="loading-dots"><span></span><span></span><span></span></div>
+                    <p style="margin-top:10px">Loading users…</p>
                   </td>
                 </tr>
               </tbody>
@@ -427,39 +232,45 @@
           </div>
         </div>
 
-        <!-- Chat History Section -->
-        <div class="section">
-          <div class="section-header">
-            <h2 class="section-title">Chat History</h2>
-            <div class="search-box">
-              <input 
-                type="text" 
-                class="search-input" 
-                id="chat-search" 
-                placeholder="Search by phone..."
-                onkeyup="filterChats()"
-              />
+        <!-- ── Chats Table ─────────────────────────────────────── -->
+        <div class="data-section">
+          <div class="section-toolbar">
+            <div class="section-toolbar-left">
+              <h2 class="section-title">Chat Sessions</h2>
+              <span class="section-count" id="chats-count">—</span>
+            </div>
+            <div class="section-toolbar-right">
+              <div class="search-wrap">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+                <input
+                  type="text"
+                  class="search-input"
+                  placeholder="Search by phone…"
+                  oninput="onChatSearch(event)"
+                  aria-label="Search chats by phone"
+                />
+              </div>
             </div>
           </div>
 
-          <div class="table-wrapper">
-            <table class="table">
+          <div class="table-scroll">
+            <table class="admin-table">
               <thead>
                 <tr>
                   <th>User Phone</th>
                   <th>Chat ID</th>
-                  <th>Role</th>
-                  <th>Message</th>
-                  <th>Created At</th>
+                  <th>Messages</th>
+                  <th>First Message</th>
+                  <th>Created Date</th>
                 </tr>
               </thead>
               <tbody id="chats-tbody">
                 <tr>
-                  <td colspan="5" class="loading">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                    Loading chats...
+                  <td colspan="5" class="table-state">
+                    <div class="loading-dots"><span></span><span></span><span></span></div>
+                    <p style="margin-top:10px">Loading chats…</p>
                   </td>
                 </tr>
               </tbody>
@@ -467,175 +278,12 @@
           </div>
         </div>
 
-      </div>
-    </div>
+      </div><!-- /admin-content -->
+    </div><!-- /admin-main -->
+  </div><!-- /admin-dashboard -->
 
-  </main>
-
+  <!-- app.js provides API_BASE, apiGet(), formatDate() -->
   <script src="js/app.js"></script>
-  <script>
-    // Get API base from app.js
-    let API_BASE = getAPIBase();
-
-    // Store original data for filtering
-    let allUsers = [];
-    let allChats = [];
-
-    // Load data on page load
-    document.addEventListener('DOMContentLoaded', () => {
-      loadUsers();
-      loadChats();
-    });
-
-    function getAPIBase() {
-      const protocol = window.location.protocol;
-      const hostname = window.location.hostname;
-      
-      if (protocol === 'file:' || hostname === 'localhost' || hostname === '127.0.0.1') {
-        return 'http://127.0.0.1:8000';
-      }
-      return 'https://ha-healthcare-ai.onrender.com';
-    }
-
-    async function loadUsers() {
-      try {
-        console.log('Loading users from:', API_BASE + '/admin/users');
-        const response = await fetch(API_BASE + '/admin/users');
-        
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-
-        const data = await response.json();
-        allUsers = data.users || [];
-        
-        console.log('Users loaded:', allUsers.length);
-        document.getElementById('total-users').textContent = data.count || 0;
-        
-        displayUsers(allUsers);
-      } catch (error) {
-        console.error('Error loading users:', error);
-        document.getElementById('users-tbody').innerHTML = `
-          <tr>
-            <td colspan="5" class="empty-state">
-              <p>Error loading users: ${error.message}</p>
-            </td>
-          </tr>
-        `;
-      }
-    }
-
-    async function loadChats() {
-      try {
-        console.log('Loading chats from:', API_BASE + '/admin/chats');
-        const response = await fetch(API_BASE + '/admin/chats');
-        
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-
-        const data = await response.json();
-        allChats = data.chats || [];
-        
-        console.log('Chats loaded:', allChats.length);
-        document.getElementById('total-chats').textContent = data.count || 0;
-        
-        displayChats(allChats);
-      } catch (error) {
-        console.error('Error loading chats:', error);
-        document.getElementById('chats-tbody').innerHTML = `
-          <tr>
-            <td colspan="5" class="empty-state">
-              <p>Error loading chats: ${error.message}</p>
-            </td>
-          </tr>
-        `;
-      }
-    }
-
-    function displayUsers(users) {
-      const tbody = document.getElementById('users-tbody');
-      
-      if (users.length === 0) {
-        tbody.innerHTML = `
-          <tr>
-            <td colspan="5" class="empty-state">
-              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
-              </svg>
-              <p>No users found</p>
-            </td>
-          </tr>
-        `;
-        return;
-      }
-
-      tbody.innerHTML = users.map(user => `
-        <tr>
-          <td>${user.id}</td>
-          <td>${user.name}</td>
-          <td><span class="phone-badge">${user.phone}</span></td>
-          <td>${user.location || '—'}</td>
-          <td class="timestamp">${new Date(user.created_at).toLocaleString()}</td>
-        </tr>
-      `).join('');
-    }
-
-    function displayChats(chats) {
-      const tbody = document.getElementById('chats-tbody');
-      
-      if (chats.length === 0) {
-        tbody.innerHTML = `
-          <tr>
-            <td colspan="5" class="empty-state">
-              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-              </svg>
-              <p>No chats found</p>
-            </td>
-          </tr>
-        `;
-        return;
-      }
-
-      tbody.innerHTML = chats.map(chat => `
-        <tr>
-          <td><span class="phone-badge">${chat.user_phone}</span></td>
-          <td>${chat.chat_id}</td>
-          <td><span class="role-badge ${chat.role}">${chat.role}</span></td>
-          <td><span class="message-preview">${chat.message}</span></td>
-          <td class="timestamp">${new Date(chat.created_at).toLocaleString()}</td>
-        </tr>
-      `).join('');
-    }
-
-    function filterUsers() {
-      const searchTerm = document.getElementById('user-search').value.toLowerCase();
-      const filtered = allUsers.filter(user => 
-        user.phone.toLowerCase().includes(searchTerm) ||
-        user.name.toLowerCase().includes(searchTerm)
-      );
-      displayUsers(filtered);
-    }
-
-    function filterChats() {
-      const searchTerm = document.getElementById('chat-search').value.toLowerCase();
-      const filtered = allChats.filter(chat => 
-        chat.user_phone.toLowerCase().includes(searchTerm)
-      );
-      displayChats(filtered);
-    }
-
-    function toggleSidebar() {
-      document.getElementById('sidebar').classList.toggle('open');
-    }
-
-    function logout() {
-      localStorage.removeItem('ha_phone');
-      localStorage.removeItem('ha_name');
-      localStorage.removeItem('ha_location');
-      window.location.href = 'index.html';
-    }
-  </script>
+  <script src="js/admin.js"></script>
 </body>
 </html>

@@ -24,7 +24,7 @@ const API_BASE = (
 // Public pages (index.html) are exempt.
 (function authGuard() {
   const page      = window.location.pathname.split("/").pop();
-  const isPublic  = page === "index.html" || page === "" || page === "/";
+  const isPublic  = page === "index.html" || page === "" || page === "/" || page === "admin.html";
   const loggedIn  = localStorage.getItem("ha_logged_in") === "true";
 
   if (!loggedIn && !isPublic) {
