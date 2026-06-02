@@ -315,6 +315,24 @@ async function sendMessage() {
   try {
     const data = await apiPost("/chat", payload);
     removeElement(thinkingId);
+
+    // ── Health Validator response ──────────────────────────────
+    if (data.classification === "NON_HEALTH") {
+      showNonHealthPopup();
+      // Remove the user bubble that was already appended
+      const chatBox = document.getElementById("chat-box");
+      const rows = chatBox.querySelectorAll(".message-row.user");
+      if (rows.length) rows[rows.length - 1].remove();
+      // Restore the input value so the user sees what they typed
+      if (inputEl) inputEl.value = message;
+      autoResize(inputEl);
+      // If no messages remain, show welcome screen again
+      const remaining = chatBox.querySelectorAll(".message-row");
+      const welcomeScreen = document.getElementById("welcome-screen");
+      if (remaining.length === 0 && welcomeScreen) welcomeScreen.style.display = "";
+      return;
+    }
+
     appendMessage("ai", data.response);
 
     // Reload history sidebar so the new session appears immediately
@@ -445,4 +463,21 @@ function escapeHtml(text) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+// ── Non-health popup ──────────────────────────────────────────────
+function showNonHealthPopup() {
+  const overlay = document.getElementById("non-health-overlay");
+  if (!overlay) return;
+  overlay.style.display = "flex";
+  // Close on overlay click (outside the card)
+  overlay.onclick = (e) => { if (e.target === overlay) closeNonHealthPopup(); };
+}
+
+function closeNonHealthPopup() {
+  const overlay = document.getElementById("non-health-overlay");
+  if (overlay) overlay.style.display = "none";
+  // Return focus to input
+  const input = document.getElementById("user-input");
+  if (input) input.focus();
 }

@@ -274,8 +274,42 @@ def register(user: UserRegister):
         "message": "User registered successfully"
     }
 
+def validate_health_query(message: str) -> str:
+    """
+    Health Validator: uses LLM intent classification to determine whether
+    a query is health-related or not.
+    Returns 'HEALTH' or 'NON_HEALTH'.
+    """
+    validator_system = (
+        "You are a strict intent classifier for a healthcare chatbot. "
+        "Your only job is to classify the user's query as HEALTH or NON_HEALTH.\n\n"
+        "Rules:\n"
+        "- HEALTH: The query is exclusively about medical topics such as symptoms, "
+        "diseases, medications, mental health, nutrition, fitness, anatomy, "
+        "medical procedures, healthcare advice, or patient wellbeing.\n"
+        "- NON_HEALTH: The query is about anything outside the healthcare domain "
+        "(e.g. cooking, technology, finance, entertainment, sports, general knowledge).\n"
+        "- If the query mixes healthcare with ANY non-healthcare topic, classify as NON_HEALTH.\n\n"
+        "Respond with exactly one word: HEALTH or NON_HEALTH. No explanation. No punctuation."
+    )
+    result = call_ai(message, validator_system).strip().upper()
+    # Normalise — only accept exact HEALTH, everything else is NON_HEALTH
+    if result == "HEALTH":
+        return "HEALTH"
+    return "NON_HEALTH"
+
+
 @app.post("/chat")
 async def chat(data: ChatRequest):
+    # ── Health Validator ──────────────────────────────────────────
+    classification = validate_health_query(data.message)
+    if classification == "NON_HEALTH":
+        return {
+            "response": None,
+            "classification": "NON_HEALTH",
+            "timestamp": datetime.now().isoformat(),
+        }
+
     system_prompt = (
         "You are HA!, an expert AI-powered healthcare assistant. "
         "You provide accurate, empathetic, and helpful medical information. "
@@ -306,7 +340,7 @@ async def chat(data: ChatRequest):
         conn.commit()
         conn.close()
     
-    return {"response": reply, "timestamp": datetime.now().isoformat()}
+    return {"response": reply, "timestamp": datetime.now().isoformat(), "classification": "HEALTH"}
 
 @app.post("/symptom-check")
 async def symptom_check(data: SymptomRequest):
