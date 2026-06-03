@@ -617,16 +617,22 @@ def get_admin_stats():
     cursor.execute("SELECT COUNT(DISTINCT chat_id) FROM chat_history")
     total_chats = cursor.fetchone()[0]
 
-    # Active users = users who chatted in the last 7 days
     cursor.execute("""
         SELECT COUNT(DISTINCT user_phone) FROM chat_history
         WHERE created_at >= datetime('now', '-7 days')
     """)
     active_users = cursor.fetchone()[0]
 
+    cursor.execute("""
+        SELECT COUNT(*) FROM users
+        WHERE created_at >= datetime('now', 'start of day')
+    """)
+    today_users = cursor.fetchone()[0]
+
     conn.close()
     return {
-        "total_users": total_users,
-        "total_chats": total_chats,
-        "active_users": active_users
+        "total_users":  total_users,
+        "total_chats":  total_chats,
+        "active_users": active_users,
+        "today_users":  today_users
     }

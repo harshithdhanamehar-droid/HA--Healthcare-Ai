@@ -1,262 +1,326 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
   <title>HA! — Admin Dashboard</title>
-  <link rel="stylesheet" href="css/style.css" />
-  <link rel="stylesheet" href="css/admin.css" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="css/admin.css"/>
 </head>
-<body>
+<body style="background:#080c14;margin:0">
+<div id="admin-root">
 
-  <!-- ═══════════════════════════════════════════════════════════
-       ADMIN LOGIN GATE
-       Shown until correct PIN is entered (session-scoped)
-  ════════════════════════════════════════════════════════════════ -->
-  <div id="admin-login-overlay" class="admin-login-overlay">
-    <div class="admin-login-card">
-      <div class="login-icon">🔐</div>
-      <h2>Admin Access</h2>
-      <p>Enter your admin PIN to access the dashboard.</p>
-
-      <div class="form-group">
-        <label for="admin-pin">Admin PIN</label>
-        <input
-          type="password"
-          id="admin-pin"
-          class="admin-pin-input"
-          placeholder="• • • • • •"
-          maxlength="20"
-          autocomplete="off"
-          onkeydown="handlePinKeydown(event)"
-        />
-      </div>
-
-      <button class="btn-login-admin" onclick="submitAdminLogin()">
-        Unlock Dashboard
-      </button>
-      <div id="login-error" class="login-error"></div>
-
-      <p style="margin-top:20px; font-size:12px; color:var(--text-muted);">
-        <a href="chat.html" style="color:var(--accent); text-decoration:none;">← Back to Chat</a>
-      </p>
-    </div>
+<!-- ══════════════════════════════════════════════════════════════
+     LOGIN GATE
+══════════════════════════════════════════════════════════════ -->
+<div id="login-gate">
+  <div class="login-card">
+    <div class="login-logo"><span class="ha">HA</span><span class="ex">!</span></div>
+    <div class="login-badge">Admin Portal</div>
+    <h2>Welcome back</h2>
+    <p>Enter your admin PIN to access the dashboard</p>
+    <label class="pin-label" for="admin-pin">Admin PIN</label>
+    <input type="password" id="admin-pin" class="pin-input"
+           placeholder="••••••" maxlength="20" autocomplete="off"
+           onkeydown="handlePinKey(event)"/>
+    <button class="btn-unlock" onclick="submitLogin()">Unlock Dashboard</button>
+    <div id="login-error" class="login-err"></div>
   </div>
+</div>
 
-  <!-- ═══════════════════════════════════════════════════════════
-       MAIN DASHBOARD  (hidden until authenticated)
-  ════════════════════════════════════════════════════════════════ -->
-  <div id="admin-dashboard" class="admin-body" style="display:none;">
+<!-- ══════════════════════════════════════════════════════════════
+     MAIN SHELL
+══════════════════════════════════════════════════════════════ -->
+<div id="admin-shell" style="display:none">
 
-    <!-- ── Sidebar ─────────────────────────────────────────────── -->
-    <aside class="admin-sidebar" id="admin-sidebar">
-      <div class="sidebar-brand">
-        <div class="brand-logo">
-          <span class="logo-ha">HA</span><span class="logo-exclaim">!</span>
+  <!-- SIDEBAR -->
+  <aside class="adm-sidebar" id="admin-sidebar">
+    <div class="sb-top">
+      <div class="sb-logo"><span class="ha">HA</span><span class="ex">!</span></div>
+      <div class="sb-tag">Admin Dashboard</div>
+    </div>
+
+    <div class="sb-nav">
+      <div class="sb-section-label">Menu</div>
+
+      <button class="sb-item" data-section="overview" onclick="navTo('overview')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+          <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+        </svg>
+        Overview
+      </button>
+
+      <button class="sb-item" data-section="users" onclick="navTo('users')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+          <circle cx="9" cy="7" r="4"/>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+        </svg>
+        Users
+        <span class="sb-notif" id="notif-badge">0</span>
+      </button>
+
+      <button class="sb-item" data-section="chats" onclick="navTo('chats')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+        Chats
+      </button>
+
+      <button class="sb-item" data-section="analytics" onclick="navTo('analytics')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+        </svg>
+        Analytics
+      </button>
+
+      <button class="sb-item" data-section="settings" onclick="navTo('settings')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+        Settings
+      </button>
+    </div>
+
+    <div class="sb-footer">
+      <div class="sb-user">
+        <div class="sb-avatar" id="sb-avatar">A</div>
+        <div class="sb-user-info">
+          <div class="sb-user-name" id="sb-user-name">Admin</div>
+          <div class="sb-user-role">Administrator</div>
         </div>
-        <div class="brand-label">Admin Dashboard</div>
       </div>
+      <button class="btn-sb-logout" onclick="adminLogout()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+          <polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+        </svg>
+        Logout
+      </button>
+    </div>
+  </aside>
 
-      <nav class="sidebar-nav">
-        <a href="admin.html" class="active">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
-            <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
-          </svg>
-          Overview
-        </a>
-        <a href="chat.html">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-          </svg>
-          AI Chat
-        </a>
-        <a href="symptoms.html">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
-          </svg>
-          Symptom Checker
-        </a>
-        <a href="doctors.html">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
-          </svg>
-          Doctors
-        </a>
-        <a href="appointments.html">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/>
-            <line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
-          </svg>
-          Appointments
-        </a>
-      </nav>
+  <!-- MAIN -->
+  <div class="adm-main">
 
-      <div class="sidebar-footer">
-        <div class="sidebar-user">
-          <div class="sidebar-avatar" id="admin-avatar">A</div>
-          <div class="sidebar-user-info">
-            <span class="sidebar-user-name" id="admin-user-name">Admin</span>
-            <span class="sidebar-user-role">Administrator</span>
-          </div>
+    <!-- Topbar -->
+    <header class="adm-topbar">
+      <div class="topbar-left">
+        <button class="hamburger-btn" onclick="toggleSidebar()">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/>
+            <line x1="3" y1="18" x2="21" y2="18"/>
+          </svg>
+        </button>
+        <div class="topbar-breadcrumb">
+          <span class="topbar-section" id="topbar-section">Overview</span>
         </div>
-        <button class="btn-logout" onclick="adminLogout()">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-            <polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+      </div>
+      <div class="topbar-right">
+        <div class="topbar-meta">
+          <span class="dot-live"></span>
+          <span id="last-refreshed">Live</span>
+        </div>
+        <button class="btn-topbar" id="btn-refresh" onclick="loadAll()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="23 4 23 10 17 10"/>
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
           </svg>
-          Logout
+          Refresh
         </button>
       </div>
-    </aside>
+    </header>
 
-    <!-- ── Main ───────────────────────────────────────────────── -->
-    <div class="admin-main">
+    <!-- Content -->
+    <div id="adm-content">
 
-      <!-- Top bar -->
-      <header class="admin-topbar">
-        <div class="topbar-left">
-          <button class="hamburger-admin" onclick="toggleAdminSidebar()" aria-label="Toggle sidebar">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/>
-              <line x1="3" y1="18" x2="21" y2="18"/>
-            </svg>
-          </button>
-          <h1 class="topbar-title">Dashboard Overview</h1>
+      <!-- ══════════════════════════════════════════════════════
+           OVERVIEW SECTION
+      ═══════════════════════════════════════════════════════ -->
+      <section id="sec-overview" class="adm-section">
+        <div class="section-head">
+          <h2>Dashboard Overview</h2>
+          <p>Real-time platform metrics and activity summary</p>
         </div>
-        <div class="topbar-right">
-          <button class="btn-refresh" id="btn-refresh" onclick="loadAll()">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="23 4 23 10 17 10"/>
-              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-            </svg>
-            <span class="refresh-label">Refresh</span>
-          </button>
-        </div>
-      </header>
 
-      <!-- Content -->
-      <div class="admin-content">
-
-        <!-- Stats Cards -->
-        <div class="stats-grid">
-          <div class="stat-card users">
-            <div class="stat-icon">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-                <circle cx="9" cy="7" r="4"/>
-                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-                <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+        <!-- Stat Cards -->
+        <div class="stats-row">
+          <div class="s-card c-cyan loading">
+            <div class="s-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
               </svg>
             </div>
-            <div class="stat-value" id="stat-total-users">—</div>
-            <div class="stat-label">Total Users</div>
-            <div class="stat-sublabel">Registered accounts</div>
+            <div class="s-val" id="sv-users">—</div>
+            <div class="s-label">Total Users</div>
+            <div class="s-sub">Registered accounts</div>
+            <div class="s-trend neu" id="st-users">—</div>
           </div>
 
-          <div class="stat-card chats">
-            <div class="stat-icon">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <div class="s-card c-blue loading">
+            <div class="s-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
               </svg>
             </div>
-            <div class="stat-value" id="stat-total-chats">—</div>
-            <div class="stat-label">Total Chats</div>
-            <div class="stat-sublabel">Unique sessions</div>
+            <div class="s-val" id="sv-chats">—</div>
+            <div class="s-label">Total Chats</div>
+            <div class="s-sub">Unique sessions</div>
+            <div class="s-trend neu">All time</div>
           </div>
 
-          <div class="stat-card active">
-            <div class="stat-icon">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <div class="s-card c-purple loading">
+            <div class="s-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
               </svg>
             </div>
-            <div class="stat-value" id="stat-active-users">—</div>
-            <div class="stat-label">Active Users</div>
-            <div class="stat-sublabel">Chatted in last 7 days</div>
+            <div class="s-val" id="sv-active">—</div>
+            <div class="s-label">Active Users</div>
+            <div class="s-sub">Last 7 days</div>
+            <div class="s-trend neu">7-day window</div>
+          </div>
+
+          <div class="s-card c-orange loading">
+            <div class="s-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="12 6 12 12 16 14"/>
+              </svg>
+            </div>
+            <div class="s-val" id="sv-today">—</div>
+            <div class="s-label">Today's Registrations</div>
+            <div class="s-sub">New sign-ups today</div>
+            <div class="s-trend neu">Today</div>
           </div>
         </div>
 
-        <!-- ── Users Table ─────────────────────────────────────── -->
-        <div class="data-section">
-          <div class="section-toolbar">
-            <div class="section-toolbar-left">
-              <h2 class="section-title">Users</h2>
-              <span class="section-count" id="users-count">—</span>
+        <!-- Recent activity mini-tables -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+          <div class="panel">
+            <div class="panel-head">
+              <div class="panel-head-left">
+                <span class="panel-title">Recent Users</span>
+                <span class="panel-pill" id="ov-users-count">—</span>
+              </div>
+              <button class="btn-act secondary" onclick="navTo('users')">View all →</button>
             </div>
-            <div class="section-toolbar-right">
-              <div class="search-wrap">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <div class="t-scroll">
+              <table class="adm-tbl">
+                <thead><tr><th>Name</th><th>Phone</th><th>Joined</th></tr></thead>
+                <tbody id="ov-users-tbody">
+                  <tr><td colspan="3"><div class="empty-state" style="padding:30px"><p>Loading…</p></div></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <div class="panel-head-left">
+                <span class="panel-title">Recent Chats</span>
+                <span class="panel-pill" id="ov-chats-count">—</span>
+              </div>
+              <button class="btn-act secondary" onclick="navTo('chats')">View all →</button>
+            </div>
+            <div class="t-scroll">
+              <table class="adm-tbl">
+                <thead><tr><th>Phone</th><th>Messages</th><th>Date</th></tr></thead>
+                <tbody id="ov-chats-tbody">
+                  <tr><td colspan="3"><div class="empty-state" style="padding:30px"><p>Loading…</p></div></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════
+           USERS SECTION
+      ═══════════════════════════════════════════════════════ -->
+      <section id="sec-users" class="adm-section">
+        <div class="section-head">
+          <h2>Users</h2>
+          <p>All registered accounts on the platform</p>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <div class="panel-head-left">
+              <span class="panel-title">All Users</span>
+              <span class="panel-pill" id="users-count">—</span>
+            </div>
+            <div class="panel-head-right">
+              <div class="srch-wrap">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
                 </svg>
-                <input
-                  type="text"
-                  class="search-input"
-                  placeholder="Search by name or phone…"
-                  oninput="onUserSearch(event)"
-                  aria-label="Search users"
-                />
+                <input type="text" class="srch-input" placeholder="Search name, phone, location…"
+                       oninput="onUserSearch(event)" aria-label="Search users"/>
               </div>
-              <button class="btn-export" onclick="exportUsersCSV()">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <button class="btn-act primary" onclick="exportUsersCSV()">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                  <polyline points="7 10 12 15 17 10"/>
-                  <line x1="12" y1="15" x2="12" y2="3"/>
+                  <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
                 </svg>
                 Export CSV
               </button>
             </div>
           </div>
-
-          <div class="table-scroll">
-            <table class="admin-table">
+          <div class="t-scroll">
+            <table class="adm-tbl">
               <thead>
                 <tr>
                   <th>Name</th>
                   <th>Phone Number</th>
                   <th>Location</th>
                   <th>Registration Date</th>
+                  <th>Last Active</th>
                 </tr>
               </thead>
-              <tbody id="users-tbody">
-                <tr>
-                  <td colspan="4" class="table-state">
-                    <div class="loading-dots"><span></span><span></span><span></span></div>
-                    <p style="margin-top:10px">Loading users…</p>
-                  </td>
-                </tr>
-              </tbody>
+              <tbody id="users-tbody"></tbody>
             </table>
           </div>
+          <div class="pagination" id="users-pg"></div>
         </div>
+      </section>
 
-        <!-- ── Chats Table ─────────────────────────────────────── -->
-        <div class="data-section">
-          <div class="section-toolbar">
-            <div class="section-toolbar-left">
-              <h2 class="section-title">Chat Sessions</h2>
-              <span class="section-count" id="chats-count">—</span>
+      <!-- ══════════════════════════════════════════════════════
+           CHATS SECTION
+      ═══════════════════════════════════════════════════════ -->
+      <section id="sec-chats" class="adm-section">
+        <div class="section-head">
+          <h2>Chat Sessions</h2>
+          <p>All conversations grouped by session</p>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <div class="panel-head-left">
+              <span class="panel-title">All Sessions</span>
+              <span class="panel-pill" id="chats-count">—</span>
             </div>
-            <div class="section-toolbar-right">
-              <div class="search-wrap">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <div class="panel-head-right">
+              <div class="srch-wrap">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
                 </svg>
-                <input
-                  type="text"
-                  class="search-input"
-                  placeholder="Search by phone…"
-                  oninput="onChatSearch(event)"
-                  aria-label="Search chats by phone"
-                />
+                <input type="text" class="srch-input" placeholder="Search by phone or chat ID…"
+                       oninput="onChatSearch(event)" aria-label="Search chats"/>
               </div>
+              <button class="btn-act primary" onclick="exportChatsCSV()">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                Export CSV
+              </button>
             </div>
           </div>
-
-          <div class="table-scroll">
-            <table class="admin-table">
+          <div class="t-scroll">
+            <table class="adm-tbl">
               <thead>
                 <tr>
                   <th>User Phone</th>
@@ -264,26 +328,215 @@
                   <th>Messages</th>
                   <th>First Message</th>
                   <th>Created Date</th>
+                  <th>Action</th>
                 </tr>
               </thead>
-              <tbody id="chats-tbody">
-                <tr>
-                  <td colspan="5" class="table-state">
-                    <div class="loading-dots"><span></span><span></span><span></span></div>
-                    <p style="margin-top:10px">Loading chats…</p>
-                  </td>
-                </tr>
-              </tbody>
+              <tbody id="chats-tbody"></tbody>
             </table>
+          </div>
+          <div class="pagination" id="chats-pg"></div>
+        </div>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════
+           ANALYTICS SECTION
+      ═══════════════════════════════════════════════════════ -->
+      <section id="sec-analytics" class="adm-section">
+        <div class="section-head">
+          <h2>Analytics</h2>
+          <p>Usage trends and platform activity insights</p>
+        </div>
+
+        <div class="charts-row">
+          <div class="chart-panel">
+            <h3>User Registrations</h3>
+            <p>Daily new signups — last 7 days</p>
+            <div class="bar-chart" id="reg-chart"></div>
+          </div>
+          <div class="chart-panel">
+            <h3>Chat Activity</h3>
+            <p>Daily new chat sessions — last 7 days</p>
+            <div class="bar-chart" id="chat-chart"></div>
           </div>
         </div>
 
-      </div><!-- /admin-content -->
-    </div><!-- /admin-main -->
-  </div><!-- /admin-dashboard -->
+        <div class="charts-row">
+          <div class="chart-panel" style="grid-column:1/-1">
+            <h3>Top Active Users</h3>
+            <p>Users with the most total messages</p>
+            <div class="top-list" id="top-users-list">
+              <div class="empty-state"><p>Load analytics to view top users</p></div>
+            </div>
+          </div>
+        </div>
 
-  <!-- app.js provides API_BASE, apiGet(), formatDate() -->
-  <script src="js/app.js"></script>
-  <script src="js/admin.js"></script>
+        <!-- Usage stat grid -->
+        <div class="stats-row" style="margin-bottom:0">
+          <div class="s-card c-cyan" style="grid-column:span 2">
+            <div class="s-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/>
+                <polyline points="17 6 23 6 23 12"/>
+              </svg>
+            </div>
+            <div class="s-val" id="av-avg-msgs">—</div>
+            <div class="s-label">Avg Messages / Session</div>
+            <div class="s-sub">Across all chat sessions</div>
+          </div>
+          <div class="s-card c-blue" style="grid-column:span 2">
+            <div class="s-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="4" width="18" height="18" rx="2"/>
+                <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/>
+                <line x1="3" y1="10" x2="21" y2="10"/>
+              </svg>
+            </div>
+            <div class="s-val" id="av-chats-user">—</div>
+            <div class="s-label">Avg Chats / User</div>
+            <div class="s-sub">Sessions per registered user</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════
+           SETTINGS SECTION
+      ═══════════════════════════════════════════════════════ -->
+      <section id="sec-settings" class="adm-section">
+        <div class="section-head">
+          <h2>Settings</h2>
+          <p>Admin configuration and dashboard preferences</p>
+        </div>
+
+        <div class="settings-grid">
+
+          <!-- Change PIN -->
+          <div class="settings-panel">
+            <h3>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+              Admin PIN
+            </h3>
+            <p>Change the admin login PIN</p>
+            <div class="form-field">
+              <label>New PIN</label>
+              <input type="password" id="new-pin" placeholder="Enter new PIN" autocomplete="new-password"/>
+            </div>
+            <div class="form-field">
+              <label>Confirm PIN</label>
+              <input type="password" id="confirm-pin" placeholder="Confirm new PIN" autocomplete="new-password"/>
+            </div>
+            <button class="btn-settings" onclick="savePin()">Update PIN</button>
+          </div>
+
+          <!-- System Status -->
+          <div class="settings-panel">
+            <h3>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+              </svg>
+              System Status
+            </h3>
+            <p>Current platform health indicators</p>
+            <div class="status-row">
+              <span class="status-label">API Backend</span>
+              <span class="status-badge ok"><span class="status-dot"></span>Operational</span>
+            </div>
+            <div class="status-row">
+              <span class="status-label">Database</span>
+              <span class="status-badge ok"><span class="status-dot"></span>Connected</span>
+            </div>
+            <div class="status-row">
+              <span class="status-label">AI Health Validator</span>
+              <span class="status-badge ok"><span class="status-dot"></span>Active</span>
+            </div>
+            <div class="status-row">
+              <span class="status-label">Auto Refresh</span>
+              <span class="status-badge ok"><span class="status-dot"></span>Running</span>
+            </div>
+          </div>
+
+          <!-- Preferences -->
+          <div class="settings-panel">
+            <h3>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+              Preferences
+            </h3>
+            <p>Dashboard behaviour settings</p>
+            <div class="form-field">
+              <label>Auto-refresh interval (seconds)</label>
+              <input type="number" id="refresh-interval" value="30" min="5" max="300"/>
+            </div>
+            <button class="btn-settings" onclick="saveRefreshInterval()">Save Interval</button>
+            <div style="margin-top:20px">
+              <div class="toggle-row">
+                <div><div class="toggle-label">Live notifications</div><div class="toggle-sub">Toast alerts for new users</div></div>
+                <label class="toggle"><input type="checkbox" checked/><span class="toggle-slider"></span></label>
+              </div>
+              <div class="toggle-row">
+                <div><div class="toggle-label">Compact table rows</div><div class="toggle-sub">Reduce row padding</div></div>
+                <label class="toggle"><input type="checkbox"/><span class="toggle-slider"></span></label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Export -->
+          <div class="settings-panel">
+            <h3>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              Data Export
+            </h3>
+            <p>Download platform data as CSV files</p>
+            <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">
+              <button class="btn-settings" onclick="exportUsersCSV()">Export Users CSV</button>
+              <button class="btn-settings" onclick="exportChatsCSV()">Export Chats CSV</button>
+              <button class="btn-settings" style="background:linear-gradient(135deg,var(--blue),#2563EB);margin-top:4px" onclick="exportDatabase()">Export Full Database</button>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+    </div><!-- /adm-content -->
+  </div><!-- /adm-main -->
+</div><!-- /admin-shell -->
+
+<!-- ══════════════════════════════════════════════════════════════
+     CHAT DETAIL MODAL
+══════════════════════════════════════════════════════════════ -->
+<div id="chat-modal" class="modal-overlay" onclick="if(event.target===this)closeModal('chat-modal')">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3 id="chat-modal-title">Chat Session</h3>
+      <button class="modal-close" onclick="closeModal('chat-modal')">×</button>
+    </div>
+    <div class="modal-msg-list" id="chat-modal-msgs"></div>
+  </div>
+</div>
+
+<!-- CONFIRM MODAL -->
+<div id="confirm-modal" class="modal-overlay" onclick="if(event.target===this)confirmNo()">
+  <div class="modal-box" style="max-width:400px;text-align:center">
+    <div class="confirm-icon">⚠️</div>
+    <h3 id="confirm-title">Confirm Action</h3>
+    <p id="confirm-msg" style="color:var(--t3);font-size:14px;margin:10px 0 24px"></p>
+    <div class="confirm-btns">
+      <button class="btn-act secondary" onclick="confirmNo()" style="flex:1">Cancel</button>
+      <button class="btn-act primary" onclick="confirmYes()" style="flex:1">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOASTS -->
+<div id="toast-area"></div>
+
+</div><!-- /admin-root -->
+<script src="js/admin.js"></script>
 </body>
 </html>
