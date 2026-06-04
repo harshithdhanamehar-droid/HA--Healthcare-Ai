@@ -1598,7 +1598,16 @@ function doLogin() {
 function doLogout() {
   sessionStorage.removeItem(AUTH_KEY);
   clearInterval(S.timer);
-  window.location.href = "index.html";
+  // Reset state so stale data doesn't flash on next login
+  S.users = []; S.chats = []; S.stats = {};
+  S.prevUsers = null; S.newUserCount = 0;
+  // Destroy any active Chart.js instances
+  Object.keys(S.charts).forEach(k => { if (S.charts[k]) { S.charts[k].destroy(); S.charts[k] = null; } });
+  // Clear the PIN input in case it had a value
+  const pinEl = document.getElementById("pin");
+  if (pinEl) { pinEl.value = ""; }
+  // Stay on admin.html — just show the lock screen again
+  showLogin();
 }
 
 /* ═══════════════════════════════════════════════════
