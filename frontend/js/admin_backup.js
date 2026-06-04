@@ -161,8 +161,17 @@ function navTo(section) {
 ═══════════════════════════════════════════════════════════════ */
 async function loadAll() {
   setBtnRefreshing(true);
-  await Promise.all([loadStats(), loadUsers(), loadChats()]);
+
+  await Promise.all([
+    loadStats(),
+    loadUsers(),
+    loadChats()
+  ]);
+
+  refreshDashboardViews();
+
   setBtnRefreshing(false);
+
   S.lastRefresh = new Date();
   updateLastRefreshedLabel();
 }
@@ -641,29 +650,28 @@ function renderOverviewTables() {
 
 /* ── Analytics derived metrics ───────────────────────────────── */
 function renderAnalyticsMetrics() {
-  const totalMsgs = S.chats.reduce((s,c)=>s+c.message_count,0);
-  const avgMsgs   = S.chats.length ? (totalMsgs/S.chats.length).toFixed(1) : "0";
-  const avgChats  = S.users.length ? (S.chats.length/S.users.length).toFixed(1) : "0";
-  setEl("av-avg-msgs",   avgMsgs);
+  const totalMsgs = S.chats.reduce((s, c) => s + c.message_count, 0);
+
+  const avgMsgs =
+    S.chats.length > 0
+      ? (totalMsgs / S.chats.length).toFixed(1)
+      : "0";
+
+  const avgChats =
+    S.users.length > 0
+      ? (S.chats.length / S.users.length).toFixed(1)
+      : "0";
+
+  setEl("av-avg-msgs", avgMsgs);
   setEl("av-chats-user", avgChats);
 }
 
-// Trigger analytics + overview render when section becomes visible
-const _origNavTo = navTo;
-window.navTo = function(section) {
-  _origNavTo(section);
-  if (section === "analytics") { renderAnalytics(); renderAnalyticsMetrics(); }
-  if (section === "overview")  { renderOverviewTables(); }
-};
-
-// Also render after data loads
-const _origLoadAll = loadAll;
-window.loadAll = async function() {
-  setBtnRefreshing(true);
-  await Promise.all([loadStats(), loadUsers(), loadChats()]);
-  setBtnRefreshing(false);
-  S.lastRefresh = new Date();
-  updateLastRefreshedLabel();
+/* Render dashboard data */
+function refreshDashboardViews() {
   renderOverviewTables();
-  if (S.activeSection === "analytics") { renderAnalytics(); renderAnalyticsMetrics(); }
-};
+  renderAnalyticsMetrics();
+
+  if (S.activeSection === "analytics") {
+    renderAnalytics();
+  }
+}
