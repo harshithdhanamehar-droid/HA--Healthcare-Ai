@@ -118,41 +118,33 @@ function toggleSidebar() {
 function navTo(section) {
   S.activeSection = section;
 
-  document.querySelectorAll(".adm-section").forEach(el => {
-    el.classList.remove("active");
-  });
-
+  // Toggle sections
+  document.querySelectorAll(".adm-section").forEach(el => el.classList.remove("active"));
   const sec = document.getElementById("sec-" + section);
   if (sec) sec.classList.add("active");
 
+  // Sidebar active state
   document.querySelectorAll(".sb-item").forEach(el => {
     el.classList.toggle("active", el.dataset.section === section);
   });
 
+  // Topbar title map
   const titles = {
-    overview: "Overview",
-    users: "Users",
-    chats: "Chat Sessions",
+    overview : "Overview",
+    users    : "Users",
+    chats    : "Chat Sessions",
     analytics: "Analytics",
-    settings: "Settings"
+    settings : "Settings"
   };
-
   setEl("topbar-section", titles[section] || "Dashboard");
 
+  // Close mobile sidebar
   document.getElementById("admin-sidebar")?.classList.remove("open");
 
+  // Clear new user badge when visiting users
   if (section === "users") {
     S.newUserCount = 0;
     updateNotifBadge(0);
-  }
-
-  if (section === "overview") {
-    renderOverviewTables();
-  }
-
-  if (section === "analytics") {
-    renderAnalytics();
-    renderAnalyticsMetrics();
   }
 }
 
@@ -161,17 +153,8 @@ function navTo(section) {
 ═══════════════════════════════════════════════════════════════ */
 async function loadAll() {
   setBtnRefreshing(true);
-
-  await Promise.all([
-    loadStats(),
-    loadUsers(),
-    loadChats()
-  ]);
-
-  refreshDashboardViews();
-
+  await Promise.all([loadStats(), loadUsers(), loadChats()]);
   setBtnRefreshing(false);
-
   S.lastRefresh = new Date();
   updateLastRefreshedLabel();
 }
@@ -650,28 +633,29 @@ function renderOverviewTables() {
 
 /* ── Analytics derived metrics ───────────────────────────────── */
 function renderAnalyticsMetrics() {
-  const totalMsgs = S.chats.reduce((s, c) => s + c.message_count, 0);
-
-  const avgMsgs =
-    S.chats.length > 0
-      ? (totalMsgs / S.chats.length).toFixed(1)
-      : "0";
-
-  const avgChats =
-    S.users.length > 0
-      ? (S.chats.length / S.users.length).toFixed(1)
-      : "0";
-
-  setEl("av-avg-msgs", avgMsgs);
+  const totalMsgs = S.chats.reduce((s,c)=>s+c.message_count,0);
+  const avgMsgs   = S.chats.length ? (totalMsgs/S.chats.length).toFixed(1) : "0";
+  const avgChats  = S.users.length ? (S.chats.length/S.users.length).toFixed(1) : "0";
+  setEl("av-avg-msgs",   avgMsgs);
   setEl("av-chats-user", avgChats);
 }
 
-/* Render dashboard data */
-function refreshDashboardViews() {
-  renderOverviewTables();
-  renderAnalyticsMetrics();
+// Trigger analytics + overview render when section becomes visible
+const _origNavTo = navTo;
+window.navTo = function(section) {
+  _origNavTo(section);
+  if (section === "analytics") { renderAnalytics(); renderAnalyticsMetrics(); }
+  if (section === "overview")  { renderOverviewTables(); }
+};
 
-  if (S.activeSection === "analytics") {
-    renderAnalytics();
-  }
-}
+// Also render after data loads
+const _origLoadAll = loadAll;
+window.loadAll = async function() {
+  setBtnRefreshing(true);
+  await Promise.all([loadStats(), loadUsers(), loadChats()]);
+  setBtnRefreshing(false);
+  S.lastRefresh = new Date();
+  updateLastRefreshedLabel();
+  renderOverviewTables();
+  if (S.activeSection === "analytics") { renderAnalytics(); renderAnalyticsMetrics(); }
+};

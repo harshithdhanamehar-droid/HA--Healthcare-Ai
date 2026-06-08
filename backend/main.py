@@ -1,14 +1,24 @@
 # -*- coding: utf-8 -*-
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import Optional, List
+import logging
 import os
 import sqlite3
 import uuid
 from datetime import datetime
+from typing import Optional, List
 
-app = FastAPI(title="HA! Healthcare AI API", version="2.0.0")
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+# ─── LOGGING ─────────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("ha_healthcare")
+
+app = FastAPI(title="HA! Healthcare AI API", version="2.1.0")
 
 # ─── CORS ────────────────────────────────────────────────────────────────────
 app.add_middleware(
@@ -22,56 +32,85 @@ app.add_middleware(
 # ─── DATABASE SETUP ──────────────────────────────────────────────────────────
 DB_PATH = "ha_healthcare.db"
 
-def init_database():
-    """Initialize SQLite database with required tables"""
+def get_conn() -> sqlite3.Connection:
+    """Return a row-factory enabled SQLite connection."""
     conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    # Create users table
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            phone TEXT UNIQUE NOT NULL,
-            location TEXT,
-            created_at TEXT NOT NULL
-        )
-    """)
-    
-    # Create chat_history table
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS chat_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_phone TEXT NOT NULL,
-            chat_id TEXT NOT NULL,
-            role TEXT NOT NULL,
-            message TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY (user_phone) REFERENCES users(phone)
-        )
-    """)
-    
-    # Create index for faster queries
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_chat_history_phone 
-        ON chat_history(user_phone)
-    """)
-    
-    cursor.execute("""
-        CREATE INDEX IF NOT EXISTS idx_chat_history_chat_id 
-        ON chat_history(chat_id)
-    """)
-    
-    conn.commit()
-    conn.close()
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")   # better write concurrency
+    conn.execute("PRAGMA foreign_keys=ON")
+    return conn
 
-# Initialize database on startup
+def init_database():
+    """Initialize SQLite database with all required tables."""
+    try:
+        conn = get_conn()
+        cursor = conn.cursor()
+
+        # Users
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id         TEXT PRIMARY KEY,
+                name       TEXT NOT NULL,
+                phone      TEXT UNIQUE NOT NULL,
+                location   TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
+
+        # Chat history
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS chat_history (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_phone TEXT NOT NULL,
+                chat_id    TEXT NOT NULL,
+                role       TEXT NOT NULL,
+                message    TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (user_phone) REFERENCES users(phone)
+            )
+        """)
+
+        # Appointments — persistent SQLite storage
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS appointments (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                appointment_id   TEXT UNIQUE NOT NULL,
+                patient_name     TEXT NOT NULL,
+                patient_phone    TEXT NOT NULL,
+                patient_location TEXT,
+                doctor_id        TEXT NOT NULL,
+                doctor_name      TEXT NOT NULL,
+                specialty        TEXT,
+                hospital         TEXT,
+                appointment_date TEXT NOT NULL,
+                appointment_time TEXT NOT NULL,
+                symptoms         TEXT,
+                fee              INTEGER DEFAULT 0,
+                status           TEXT NOT NULL DEFAULT 'pending',
+                created_at       TEXT NOT NULL,
+                updated_at       TEXT NOT NULL
+            )
+        """)
+
+        # Indexes
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_chat_phone   ON chat_history(user_phone)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_chat_id      ON chat_history(chat_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_apt_phone    ON appointments(patient_phone)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_apt_status   ON appointments(status)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_apt_date     ON appointments(appointment_date)")
+
+        conn.commit()
+        conn.close()
+        logger.info("Database initialised successfully.")
+    except Exception as e:
+        logger.error("Database initialisation failed: %s", e)
+        raise
+
 init_database()
 
-# ─── IN-MEMORY STORES ────────────────────────────────────────────────────────
-appointments_db: List[dict] = []
-
 # ─── DOCTORS DATA ─────────────────────────────────────────────────────────────
+# Each doctor has a photo_url field.
+# Set photo_url to a real image URL or "" to use the generated avatar fallback.
 DOCTORS = [
     {
         "id": "d001",
@@ -81,6 +120,7 @@ DOCTORS = [
         "rating": 4.9,
         "available_slots": ["09:00 AM", "10:00 AM", "11:00 AM", "02:00 PM", "03:00 PM"],
         "fee": 500,
+        "photo_url": "",
         "image": "https://api.dicebear.com/7.x/personas/svg?seed=priya",
         "hospital": "HA! City Medical Center",
         "languages": ["English", "Hindi", "Telugu"],
@@ -93,6 +133,7 @@ DOCTORS = [
         "rating": 4.8,
         "available_slots": ["10:00 AM", "11:30 AM", "03:00 PM", "04:30 PM"],
         "fee": 1200,
+        "photo_url": "",
         "image": "https://api.dicebear.com/7.x/personas/svg?seed=arjun",
         "hospital": "HA! Heart Care Institute",
         "languages": ["English", "Hindi"],
@@ -105,6 +146,7 @@ DOCTORS = [
         "rating": 4.7,
         "available_slots": ["09:30 AM", "11:00 AM", "01:00 PM", "04:00 PM"],
         "fee": 800,
+        "photo_url": "",
         "image": "https://api.dicebear.com/7.x/personas/svg?seed=sneha",
         "hospital": "HA! Skin & Wellness Clinic",
         "languages": ["English", "Telugu", "Kannada"],
@@ -117,6 +159,7 @@ DOCTORS = [
         "rating": 4.9,
         "available_slots": ["10:00 AM", "12:00 PM", "02:30 PM", "05:00 PM"],
         "fee": 1500,
+        "photo_url": "",
         "image": "https://api.dicebear.com/7.x/personas/svg?seed=rahul",
         "hospital": "HA! Neuro Sciences Center",
         "languages": ["English", "Hindi"],
@@ -129,6 +172,7 @@ DOCTORS = [
         "rating": 4.8,
         "available_slots": ["09:00 AM", "10:30 AM", "12:00 PM", "03:30 PM"],
         "fee": 600,
+        "photo_url": "",
         "image": "https://api.dicebear.com/7.x/personas/svg?seed=kavitha",
         "hospital": "HA! Children's Health Hub",
         "languages": ["English", "Malayalam", "Tamil"],
@@ -141,6 +185,7 @@ DOCTORS = [
         "rating": 4.9,
         "available_slots": ["11:00 AM", "01:00 PM", "03:00 PM", "05:00 PM"],
         "fee": 1000,
+        "photo_url": "",
         "image": "https://api.dicebear.com/7.x/personas/svg?seed=suresh",
         "hospital": "HA! Bone & Joint Clinic",
         "languages": ["English", "Hindi", "Gujarati"],
@@ -153,6 +198,7 @@ DOCTORS = [
         "rating": 4.7,
         "available_slots": ["10:00 AM", "11:30 AM", "02:00 PM", "04:00 PM"],
         "fee": 900,
+        "photo_url": "",
         "image": "https://api.dicebear.com/7.x/personas/svg?seed=ananya",
         "hospital": "HA! Mind & Wellness Center",
         "languages": ["English", "Bengali", "Hindi"],
@@ -165,11 +211,17 @@ DOCTORS = [
         "rating": 4.8,
         "available_slots": ["09:00 AM", "10:30 AM", "01:30 PM", "03:30 PM"],
         "fee": 700,
+        "photo_url": "",
         "image": "https://api.dicebear.com/7.x/personas/svg?seed=vikram",
         "hospital": "HA! Diabetes Care Center",
         "languages": ["English", "Hindi", "Punjabi"],
     },
 ]
+
+def get_doctor_display_image(doctor: dict) -> str:
+    """Return photo_url if set, otherwise fall back to generated avatar."""
+    return doctor.get("photo_url") or doctor.get("image", "")
+
 
 # ─── MODELS ───────────────────────────────────────────────────────────────────
 class ChatRequest(BaseModel):
@@ -186,10 +238,14 @@ class SymptomRequest(BaseModel):
 class AppointmentRequest(BaseModel):
     patient_name: str
     patient_phone: str
+    patient_location: Optional[str] = ""
     doctor_id: str
     date: str
     time_slot: str
-    reason: Optional[str] = ""
+    reason: Optional[str] = ""        # kept for backwards compat — stored as symptoms
+
+class AppointmentStatusUpdate(BaseModel):
+    status: str                        # pending | confirmed | completed | cancelled
 
 class UserRegister(BaseModel):
     name: str
@@ -369,59 +425,190 @@ async def symptom_check(data: SymptomRequest):
 
 @app.get("/doctors")
 def get_doctors(specialty: Optional[str] = None):
+    doctors = DOCTORS
     if specialty:
-        filtered = [d for d in DOCTORS if specialty.lower() in d["specialty"].lower()]
-        return {"doctors": filtered, "count": len(filtered)}
-    return {"doctors": DOCTORS, "count": len(DOCTORS)}
+        doctors = [d for d in doctors if specialty.lower() in d["specialty"].lower()]
+    # Inject resolved display image into each doctor
+    result = [{**d, "image": get_doctor_display_image(d)} for d in doctors]
+    return {"doctors": result, "count": len(result)}
 
 @app.get("/doctors/{doctor_id}")
 def get_doctor(doctor_id: str):
     doctor = next((d for d in DOCTORS if d["id"] == doctor_id), None)
     if not doctor:
         raise HTTPException(status_code=404, detail="Doctor not found")
-    return doctor
+    return {**doctor, "image": get_doctor_display_image(doctor)}
+
+# ─── APPOINTMENT HELPERS ──────────────────────────────────────────────────────
+
+def _row_to_appointment(row: sqlite3.Row) -> dict:
+    """Convert a DB row to the appointment dict the frontend expects."""
+    return {
+        "id":           row["appointment_id"],
+        "appointment_id": row["appointment_id"],
+        "patient_name": row["patient_name"],
+        "patient_phone": row["patient_phone"],
+        "patient_location": row["patient_location"] or "",
+        "doctor_id":    row["doctor_id"],
+        "doctor_name":  row["doctor_name"],
+        "specialty":    row["specialty"] or "",
+        "hospital":     row["hospital"] or "",
+        "date":         row["appointment_date"],
+        "time_slot":    row["appointment_time"],
+        "reason":       row["symptoms"] or "",
+        "symptoms":     row["symptoms"] or "",
+        "fee":          row["fee"],
+        "status":       row["status"],
+        "booked_at":    row["created_at"],
+        "created_at":   row["created_at"],
+        "updated_at":   row["updated_at"],
+    }
+
+VALID_STATUSES = {"pending", "confirmed", "completed", "cancelled"}
 
 @app.post("/appointments/book")
 def book_appointment(data: AppointmentRequest):
+    # Validate doctor
     doctor = next((d for d in DOCTORS if d["id"] == data.doctor_id), None)
     if not doctor:
+        logger.warning("Booking failed — doctor not found: %s", data.doctor_id)
         raise HTTPException(status_code=404, detail="Doctor not found")
+
+    if not data.patient_name.strip():
+        raise HTTPException(status_code=422, detail="patient_name is required")
+    if not data.patient_phone.strip():
+        raise HTTPException(status_code=422, detail="patient_phone is required")
+
     appointment_id = "APT" + str(uuid.uuid4())[:6].upper()
+    now = datetime.now().isoformat()
+
+    try:
+        conn = get_conn()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO appointments
+              (appointment_id, patient_name, patient_phone, patient_location,
+               doctor_id, doctor_name, specialty, hospital,
+               appointment_date, appointment_time, symptoms,
+               fee, status, created_at, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (
+            appointment_id,
+            data.patient_name.strip(),
+            data.patient_phone.strip(),
+            (data.patient_location or "").strip(),
+            doctor["id"],
+            doctor["name"],
+            doctor["specialty"],
+            doctor["hospital"],
+            data.date,
+            data.time_slot,
+            (data.reason or "").strip(),
+            doctor["fee"],
+            "pending",
+            now, now,
+        ))
+        conn.commit()
+        conn.close()
+        logger.info("Appointment created: %s for %s with %s on %s %s",
+                    appointment_id, data.patient_name, doctor["name"], data.date, data.time_slot)
+    except sqlite3.IntegrityError as e:
+        logger.error("Duplicate appointment_id collision: %s — %s", appointment_id, e)
+        raise HTTPException(status_code=409, detail="Appointment ID collision, please retry")
+    except Exception as e:
+        logger.error("DB write failed for appointment: %s", e)
+        raise HTTPException(status_code=500, detail="Database error, appointment not saved")
+
     appointment = {
         "id": appointment_id,
         "patient_name": data.patient_name,
         "patient_phone": data.patient_phone,
-        "doctor_id": data.doctor_id,
+        "doctor_id": doctor["id"],
         "doctor_name": doctor["name"],
         "specialty": doctor["specialty"],
         "hospital": doctor["hospital"],
         "date": data.date,
         "time_slot": data.time_slot,
-        "reason": data.reason,
+        "reason": data.reason or "",
         "fee": doctor["fee"],
-        "status": "confirmed",
-        "booked_at": datetime.now().isoformat(),
+        "status": "pending",
+        "booked_at": now,
     }
-    appointments_db.append(appointment)
     return {
         "success": True,
         "appointment": appointment,
-        "message": f"Appointment confirmed with {doctor['name']} on {data.date} at {data.time_slot}",
+        "message": f"Appointment booked with {doctor['name']} on {data.date} at {data.time_slot}",
     }
 
 @app.get("/appointments/{phone}")
 def get_appointments(phone: str):
-    user_appointments = [a for a in appointments_db if a["patient_phone"] == phone]
-    return {"appointments": user_appointments, "count": len(user_appointments)}
+    try:
+        conn = get_conn()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT * FROM appointments
+            WHERE patient_phone = ?
+            ORDER BY created_at DESC
+        """, (phone,))
+        rows = cursor.fetchall()
+        conn.close()
+        appointments = [_row_to_appointment(r) for r in rows]
+        logger.info("Retrieved %d appointments for phone %s", len(appointments), phone)
+        return {"appointments": appointments, "count": len(appointments)}
+    except Exception as e:
+        logger.error("Error retrieving appointments for %s: %s", phone, e)
+        raise HTTPException(status_code=500, detail="Failed to retrieve appointments")
+
+@app.patch("/appointments/{appointment_id}/status")
+def update_appointment_status(appointment_id: str, data: AppointmentStatusUpdate):
+    if data.status not in VALID_STATUSES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid status. Must be one of: {', '.join(VALID_STATUSES)}"
+        )
+    now = datetime.now().isoformat()
+    try:
+        conn = get_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE appointments SET status=?, updated_at=? WHERE appointment_id=?",
+            (data.status, now, appointment_id)
+        )
+        if cursor.rowcount == 0:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Appointment not found")
+        conn.commit()
+        conn.close()
+        logger.info("Appointment %s status updated to %s", appointment_id, data.status)
+        return {"success": True, "appointment_id": appointment_id, "status": data.status}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error updating appointment %s: %s", appointment_id, e)
+        raise HTTPException(status_code=500, detail="Failed to update appointment")
 
 @app.delete("/appointments/{appointment_id}")
 def cancel_appointment(appointment_id: str):
-    global appointments_db
-    apt = next((a for a in appointments_db if a["id"] == appointment_id), None)
-    if not apt:
-        raise HTTPException(status_code=404, detail="Appointment not found")
-    appointments_db = [a for a in appointments_db if a["id"] != appointment_id]
-    return {"success": True, "message": "Appointment cancelled successfully"}
+    now = datetime.now().isoformat()
+    try:
+        conn = get_conn()
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE appointments SET status='cancelled', updated_at=? WHERE appointment_id=?",
+            (now, appointment_id)
+        )
+        if cursor.rowcount == 0:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Appointment not found")
+        conn.commit()
+        conn.close()
+        logger.info("Appointment %s cancelled", appointment_id)
+        return {"success": True, "message": "Appointment cancelled successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error cancelling appointment %s: %s", appointment_id, e)
+        raise HTTPException(status_code=500, detail="Failed to cancel appointment")
 
 @app.get("/health-tips")
 def get_health_tips():
@@ -608,31 +795,59 @@ def get_all_chats():
 @app.get("/admin/stats")
 def get_admin_stats():
     """Dashboard summary stats"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    try:
+        conn = get_conn()
+        cursor = conn.cursor()
 
-    cursor.execute("SELECT COUNT(*) FROM users")
-    total_users = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM users")
+        total_users = cursor.fetchone()[0]
 
-    cursor.execute("SELECT COUNT(DISTINCT chat_id) FROM chat_history")
-    total_chats = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(DISTINCT chat_id) FROM chat_history")
+        total_chats = cursor.fetchone()[0]
 
-    cursor.execute("""
-        SELECT COUNT(DISTINCT user_phone) FROM chat_history
-        WHERE created_at >= datetime('now', '-7 days')
-    """)
-    active_users = cursor.fetchone()[0]
+        cursor.execute("""
+            SELECT COUNT(DISTINCT user_phone) FROM chat_history
+            WHERE created_at >= datetime('now', '-7 days')
+        """)
+        active_users = cursor.fetchone()[0]
 
-    cursor.execute("""
-        SELECT COUNT(*) FROM users
-        WHERE created_at >= datetime('now', 'start of day')
-    """)
-    today_users = cursor.fetchone()[0]
+        cursor.execute("""
+            SELECT COUNT(*) FROM users
+            WHERE created_at >= datetime('now', 'start of day')
+        """)
+        today_users = cursor.fetchone()[0]
 
-    conn.close()
-    return {
-        "total_users":  total_users,
-        "total_chats":  total_chats,
-        "active_users": active_users,
-        "today_users":  today_users
-    }
+        cursor.execute("SELECT COUNT(*) FROM appointments")
+        total_appointments = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM appointments WHERE status='pending'")
+        pending_appointments = cursor.fetchone()[0]
+
+        conn.close()
+        return {
+            "total_users":         total_users,
+            "total_chats":         total_chats,
+            "active_users":        active_users,
+            "today_users":         today_users,
+            "total_appointments":  total_appointments,
+            "pending_appointments": pending_appointments,
+        }
+    except Exception as e:
+        logger.error("Error fetching admin stats: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to fetch stats")
+
+@app.get("/admin/appointments")
+def get_all_appointments():
+    """Admin: get all appointments from SQLite, newest first."""
+    try:
+        conn = get_conn()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM appointments ORDER BY created_at DESC")
+        rows = cursor.fetchall()
+        conn.close()
+        appointments = [_row_to_appointment(r) for r in rows]
+        logger.info("Admin retrieved %d appointments", len(appointments))
+        return {"appointments": appointments, "count": len(appointments)}
+    except Exception as e:
+        logger.error("Admin appointments fetch error: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to retrieve appointments")

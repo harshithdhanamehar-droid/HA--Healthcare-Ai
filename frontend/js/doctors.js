@@ -33,11 +33,21 @@ function renderDoctors(doctors) {
 
 function doctorCard(doc) {
   const initial = doc.name.split(" ").slice(1).join(" ").charAt(0) || doc.name.charAt(0);
-  const stars = "⭐".repeat(Math.round(doc.rating));
+  const displayImage = doc.photo_url || doc.image || "";
+  const avatarHtml = displayImage
+    ? `<img
+         src="${escapeHtml(displayImage)}"
+         alt="${escapeHtml(doc.name)}"
+         class="doctor-avatar-img"
+         loading="lazy"
+         onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"
+       /><div class="doctor-avatar" style="display:none">${initial}</div>`
+    : `<div class="doctor-avatar">${initial}</div>`;
+
   return `
     <div class="doctor-card">
       <div class="doctor-card-top">
-        <div class="doctor-avatar">${initial}</div>
+        <div class="doctor-avatar-wrap">${avatarHtml}</div>
         <div class="doctor-info">
           <div class="doctor-name">${escapeHtml(doc.name)}</div>
           <div class="doctor-specialty">${escapeHtml(doc.specialty)}</div>
@@ -102,8 +112,16 @@ function openBookingModal(doctorId) {
 
   // Doctor mini card
   const initial = selectedDoctor.name.split(" ").slice(1).join(" ").charAt(0) || selectedDoctor.name.charAt(0);
+  const displayImage = selectedDoctor.photo_url || selectedDoctor.image || "";
+  const avatarHtml = displayImage
+    ? `<img src="${escapeHtml(displayImage)}" alt="${escapeHtml(selectedDoctor.name)}"
+           class="doctor-avatar-img" style="width:48px;height:48px;border-radius:50%;object-fit:cover"
+           loading="lazy"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"
+       /><div class="mini-avatar" style="display:none">${initial}</div>`
+    : `<div class="mini-avatar">${initial}</div>`;
   document.getElementById("modal-doctor-info").innerHTML = `
-    <div class="mini-avatar">${initial}</div>
+    ${avatarHtml}
     <div class="mini-info">
       <div class="mini-name">${escapeHtml(selectedDoctor.name)}</div>
       <div class="mini-spec">${escapeHtml(selectedDoctor.specialty)}</div>

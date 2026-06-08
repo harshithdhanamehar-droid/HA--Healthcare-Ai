@@ -1098,8 +1098,8 @@ tbody tr:hover{background:rgba(255,255,255,.03)}
         </svg>
       </div>
       <div class="mc-val" id="sv-diagnoses">—</div>
-      <div class="mc-label">AI Diagnoses</div>
-      <div class="mc-sub">Total health checks</div>
+      <div class="mc-label">Total Appointments</div>
+      <div class="mc-sub">Persisted in SQLite</div>
       <div class="mc-badge neu">All time</div>
     </div>
   </div>
@@ -1277,11 +1277,54 @@ tbody tr:hover{background:rgba(255,255,255,.03)}
 
 <!-- ══ APPOINTMENTS PAGE ════════════════════════════ -->
 <div id="page-appointments" class="page">
-  <div class="page-head"><h2>Appointments</h2><p>Patient appointment records</p></div>
-  <div class="panel" style="padding:64px 24px;text-align:center">
-    <div style="font-size:40px;margin-bottom:16px;opacity:.4">📅</div>
-    <h4 style="font-size:16px;font-weight:600;color:var(--t2);margin-bottom:8px">Appointments are in-memory</h4>
-    <p style="color:var(--t3);font-size:14px">Appointment data is stored in server memory and resets on restart.<br>To persist appointments, connect a database.</p>
+  <div class="page-head">
+    <h2>Appointments</h2>
+    <p>All patient appointments stored in SQLite — persists across restarts</p>
+  </div>
+  <div class="panel">
+    <div class="panel-head">
+      <div class="ph-left">
+        <span class="panel-title">All Appointments</span>
+        <span class="panel-count" id="apt-count">—</span>
+      </div>
+      <div class="ph-right">
+        <div class="srch">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input type="text" placeholder="Search patient or doctor…"
+                 oninput="filterAppointments(this.value)" id="apt-srch"/>
+        </div>
+        <select id="apt-status-filter" onchange="filterAppointments(document.getElementById('apt-srch').value)"
+                style="background:rgba(255,255,255,.04);border:1px solid var(--border);
+                       border-radius:var(--r3);padding:8px 12px;color:var(--t2);
+                       font-size:13px;font-family:inherit;cursor:pointer">
+          <option value="">All statuses</option>
+          <option value="pending">Pending</option>
+          <option value="confirmed">Confirmed</option>
+          <option value="completed">Completed</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+        <button class="btn ghost" onclick="loadAppointmentsAdmin()">
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <polyline points="23 4 23 10 17 10"/>
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+          </svg>Refresh
+        </button>
+      </div>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Appointment ID</th><th>Patient</th><th>Doctor</th>
+            <th>Date</th><th>Time</th><th>Fee</th><th>Status</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="apt-tbody"></tbody>
+      </table>
+    </div>
+    <div class="pagination" id="apt-pg"></div>
   </div>
 </div>
 
@@ -1630,6 +1673,7 @@ function goPage(p) {
   if (p === "users")     { S.newUserCount = 0; updateBadge(0); }
   if (p === "analytics") { renderAnalytics(); }
   if (p === "reports")   { updateReports(); }
+  if (p === "appointments") { loadAppointmentsAdmin(); }
 }
 
 function toggleSb() { document.getElementById("sidebar").classList.toggle("open"); }
@@ -1663,7 +1707,7 @@ async function loadStats() {
     S.stats = d;
     const tu=d.total_users||0, tc=d.total_chats||0, au=d.active_users||0, ty=d.today_users||0;
     animCount("sv-users", tu); animCount("sv-chats", tc);
-    animCount("sv-active", au); animCount("sv-diagnoses", tc * 2);
+    animCount("sv-active", au); animCount("sv-diagnoses", d.total_appointments || tc * 2);
     animCount("av-avg", tc ? Math.round(tc * 6 / Math.max(tc,1)) : 0);
     animCount("av-cpu", tu ? parseFloat((tc/tu).toFixed(1)) : 0);
     animCount("av-today", ty);
@@ -2546,6 +2590,108 @@ function animCount(id, target) {
     el.textContent = c.toLocaleString();
     if (c >= target) clearInterval(t);
   }, 28);
+}
+
+/* ═══════════════════════════════════════════════════
+   APPOINTMENTS ADMIN
+═══════════════════════════════════════════════════ */
+const APT_PAGE_SIZE = 10;
+let aptData = [], aptPage = 1, aptFilter = "", aptStatusFilter = "";
+
+async function loadAppointmentsAdmin() {
+  skelTable("apt-tbody", 8);
+  try {
+    const d = await api("/admin/appointments");
+    aptData = d.appointments || [];
+    aptPage = 1;
+    renderAppointmentsTable();
+  } catch(e) {
+    errTable("apt-tbody", 8, e.message);
+  }
+}
+
+function filterAppointments(val) {
+  aptFilter = (val || "").toLowerCase();
+  aptStatusFilter = document.getElementById("apt-status-filter")?.value || "";
+  aptPage = 1;
+  renderAppointmentsTable();
+}
+
+function renderAppointmentsTable() {
+  let filt = aptData.filter(a => {
+    const matchText = !aptFilter ||
+      a.patient_name.toLowerCase().includes(aptFilter) ||
+      a.patient_phone.includes(aptFilter) ||
+      a.doctor_name.toLowerCase().includes(aptFilter) ||
+      a.appointment_id.toLowerCase().includes(aptFilter);
+    const matchStatus = !aptStatusFilter || a.status === aptStatusFilter;
+    return matchText && matchStatus;
+  });
+
+  $("apt-count", filt.length);
+
+  const pages = Math.max(1, Math.ceil(filt.length / APT_PAGE_SIZE));
+  aptPage = Math.min(aptPage, pages);
+  const slice = filt.slice((aptPage-1)*APT_PAGE_SIZE, aptPage*APT_PAGE_SIZE);
+
+  const STATUS_COLORS = {
+    pending:   "background:rgba(245,158,11,.12);color:#F59E0B",
+    confirmed: "background:rgba(16,185,129,.12);color:#10B981",
+    completed: "background:rgba(59,130,246,.12);color:#3B82F6",
+    cancelled: "background:rgba(239,68,68,.1);color:#EF4444",
+  };
+
+  setTbody("apt-tbody", slice.length ? slice.map(a => `
+    <tr>
+      <td><span class="cell-mono" title="${x(a.appointment_id)}">${x(a.appointment_id)}</span></td>
+      <td><div class="cell-name">
+        <div class="av sm">${x((a.patient_name||"?")[0]).toUpperCase()}</div>
+        <div><div class="nm">${x(a.patient_name)}</div>
+        <div style="font-size:11.5px;color:var(--t3)">${x(a.patient_phone)}</div></div>
+      </div></td>
+      <td>
+        <div style="font-size:13px;font-weight:500;color:var(--t1)">${x(a.doctor_name)}</div>
+        <div style="font-size:11.5px;color:var(--t3)">${x(a.specialty)}</div>
+      </td>
+      <td class="cell-date">${fd(a.appointment_date || a.date)}</td>
+      <td class="cell-date">${x(a.appointment_time || a.time_slot || "—")}</td>
+      <td style="font-weight:600;color:var(--t1)">₹${a.fee || 0}</td>
+      <td><span style="padding:4px 11px;border-radius:8px;font-size:12px;font-weight:600;
+               ${STATUS_COLORS[a.status] || STATUS_COLORS.pending}">${x(a.status)}</span></td>
+      <td>
+        <select style="background:rgba(255,255,255,.04);border:1px solid var(--border);
+                       color:var(--t2);border-radius:8px;padding:5px 8px;font-size:12px;
+                       font-family:inherit;cursor:pointer"
+                onchange="updateAptStatus('${x(a.appointment_id)}', this.value, this)">
+          <option value="pending"   ${a.status==='pending'   ?'selected':''}>Pending</option>
+          <option value="confirmed" ${a.status==='confirmed' ?'selected':''}>Confirmed</option>
+          <option value="completed" ${a.status==='completed' ?'selected':''}>Completed</option>
+          <option value="cancelled" ${a.status==='cancelled' ?'selected':''}>Cancelled</option>
+        </select>
+      </td>
+    </tr>`).join("") : emptyHtml(8, "No appointments found", "📅"));
+
+  renderPg("apt-pg", filt.length, aptPage, n => { aptPage=n; renderAppointmentsTable(); });
+}
+
+async function updateAptStatus(aptId, newStatus, selectEl) {
+  const original = selectEl.dataset.prev || selectEl.value;
+  selectEl.dataset.prev = newStatus;
+  try {
+    await fetch(API + "/appointments/" + aptId + "/status", {
+      method: "PATCH",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({status: newStatus})
+    });
+    // Update local data to keep UI in sync
+    const apt = aptData.find(a => a.appointment_id === aptId);
+    if (apt) apt.status = newStatus;
+    showToast("success", "Status updated to " + newStatus);
+    renderAppointmentsTable();
+  } catch(e) {
+    showToast("error", "Failed to update status");
+    selectEl.value = original;
+  }
 }
 </script>
 </body>
