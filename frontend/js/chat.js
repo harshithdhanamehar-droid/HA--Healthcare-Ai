@@ -207,6 +207,47 @@ function formatChatTime(isoString) {
   return date.toLocaleDateString("en-IN", { month: "short", day: "numeric" });
 }
 
+// ── Search Chats ──────────────────────────────────────────────────
+function searchChats(query) {
+  const items = document.querySelectorAll(".history-item");
+  const lowerQuery = query.toLowerCase();
+  
+  items.forEach(item => {
+    const preview = item.querySelector(".history-preview");
+    const text = preview ? preview.textContent.toLowerCase() : "";
+    const matches = text.includes(lowerQuery);
+    item.style.display = matches ? "" : "none";
+  });
+}
+
+// ── Rename Chat ───────────────────────────────────────────────────
+async function renameChat(chatId, e) {
+  e.stopPropagation();
+  const newTitle = prompt("Enter new title for this chat:");
+  if (!newTitle || !newTitle.trim()) return;
+  
+  try {
+    await apiPut(`/chat/session/${chatId}/rename`, { title: newTitle.trim() });
+    loadChatHistory();
+  } catch (err) {
+    console.error("Failed to rename chat:", err);
+    alert("Failed to rename chat");
+  }
+}
+
+// ── Archive Chat ──────────────────────────────────────────────────
+async function archiveChat(chatId, e) {
+  e.stopPropagation();
+  
+  try {
+    await apiPut(`/chat/session/${chatId}/archive`, {});
+    loadChatHistory();
+  } catch (err) {
+    console.error("Failed to archive chat:", err);
+    alert("Failed to archive chat");
+  }
+}
+
 // ── New Chat ──────────────────────────────────────────────────────
 // Clears messages and shows the static welcome screen that already
 // exists in the DOM — does NOT re-inject any HTML.

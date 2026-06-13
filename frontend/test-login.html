@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HA! Login - Tab Test</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/login.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    /* Test panel - appears in top-right corner */
+    .test-panel {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: white;
+      border: 2px solid #10b981;
+      border-radius: 8px;
+      padding: 16px;
+      z-index: 10000;
+      max-width: 300px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      font-size: 12px;
+      font-family: monospace;
+    }
+    .test-panel h3 {
+      margin: 0 0 8px 0;
+      color: #10b981;
+      font-size: 14px;
+    }
+    .test-log {
+      background: #f0f9f7;
+      border: 1px solid #d1fae5;
+      border-radius: 4px;
+      padding: 8px;
+      max-height: 300px;
+      overflow-y: auto;
+      margin-bottom: 8px;
+    }
+    .test-log-entry {
+      margin: 4px 0;
+      padding: 2px 4px;
+      border-radius: 2px;
+    }
+    .test-log-entry.success {
+      background: #d1fae5;
+      color: #065f46;
+    }
+    .test-log-entry.error {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    .test-log-entry.info {
+      background: #e0e7ff;
+      color: #3730a3;
+    }
+    .test-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .test-btn {
+      padding: 6px 8px;
+      background: #10b981;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .test-btn:hover {
+      background: #059669;
+    }
+    .test-status {
+      margin-top: 8px;
+      padding: 8px;
+      background: #fffbeb;
+      border: 1px solid #fcd34d;
+      border-radius: 4px;
+      font-size: 11px;
+      color: #78350f;
+    }
+  </style>
+</head>
+<body class="login-body">
+
+  <!-- Test Panel -->
+  <div class="test-panel">
+    <h3>🧪 Test Panel</h3>
+    <div class="test-log" id="testLog"></div>
+    <div class="test-actions">
+      <button class="test-btn" onclick="testPatientTab()">Patient Tab</button>
+      <button class="test-btn" onclick="testDoctorTab()">Doctor Tab</button>
+      <button class="test-btn" onclick="testAdminTab()">Admin Tab</button>
+      <button class="test-btn" onclick="checkDOM()">Check DOM</button>
+      <button class="test-btn" onclick="clearLog()">Clear Log</button>
+    </div>
+    <div class="test-status" id="testStatus">Ready to test</div>
+  </div>
+
+  <!-- Animated background blobs -->
+  <div class="bg-blob blob-1"></div>
+  <div class="bg-blob blob-2"></div>
+  <div class="bg-blob blob-3"></div>
+
+  <div class="login-wrapper">
+
+    <!-- Left Panel — Branding -->
+    <div class="login-brand">
+      <div class="brand-logo">
+        <span class="logo-ha">HA</span><span class="logo-exclaim">!</span>
+      </div>
+      <h1 class="brand-tagline">AI-Powered Healthcare,<br /><em>Anytime, Anywhere!</em></h1>
+      <p class="brand-sub">
+        Your intelligent health companion — symptom analysis, doctor appointments,
+        emergency support, and personalized care, all in one place.
+      </p>
+      <div class="brand-features">
+        <div class="feat-item"><span class="feat-icon">🤖</span><span>AI Symptom Checker</span></div>
+        <div class="feat-item"><span class="feat-icon">👨‍⚕️</span><span>Book Doctor Instantly</span></div>
+        <div class="feat-item"><span class="feat-icon">🚨</span><span>Emergency Support</span></div>
+        <div class="feat-item"><span class="feat-icon">📊</span><span>Health Monitoring</span></div>
+      </div>
+    </div>
+
+    <!-- Right Panel — Login Form -->
+    <div class="login-card">
+      <div class="login-card-header">
+        <h2>Welcome to HA!</h2>
+        <p>Enter your details to get started</p>
+      </div>
+
+      <!-- Auth Method Tabs -->
+      <div class="auth-tabs">
+        <button class="auth-tab active" data-tab="patient">
+          <span class="tab-icon">👤</span> Patient
+        </button>
+        <button class="auth-tab" data-tab="doctor">
+          <span class="tab-icon">👨‍⚕️</span> Doctor
+        </button>
+        <button class="auth-tab" data-tab="admin">
+          <span class="tab-icon">⚙️</span> Admin
+        </button>
+      </div>
+
+      <!-- Patient Login Form -->
+      <form id="patientForm" class="auth-method active" onsubmit="return false;">
+        <div class="input-group">
+          <label for="name">Full Name</label>
+          <div class="input-wrap">
+            <span class="input-icon">👤</span>
+            <input type="text" id="name" placeholder="Name" autocomplete="off" />
+          </div>
+        </div>
+
+        <div class="input-group">
+          <label for="phone">Mobile Number</label>
+          <div class="input-wrap">
+            <span class="input-icon">📱</span>
+            <input type="tel" id="phone" placeholder="e.g. 9876543210" maxlength="10" />
+          </div>
+        </div>
+
+        <div class="input-group">
+          <label for="location">Location</label>
+          <div class="input-wrap">
+            <span class="input-icon">📍</span>
+            <input type="text" id="location" placeholder="e.g. Hyderabad" />
+          </div>
+        </div>
+
+        <p id="error-msg" class="error-msg" aria-live="polite"></p>
+
+        <button class="login-btn" onclick="testLogin()">
+          <span id="btn-text">Continue to HA! (TEST) →</span>
+          <span id="loader" class="spinner" aria-hidden="true"></span>
+        </button>
+      </form>
+
+      <!-- Doctor Login Form -->
+      <form id="doctorForm" class="auth-method" onsubmit="return false;">
+        <div class="input-group">
+          <label for="doctorEmail">Email Address</label>
+          <div class="input-wrap">
+            <span class="input-icon">✉️</span>
+            <input type="email" id="doctorEmail" placeholder="doctor@hospital.com" />
+          </div>
+        </div>
+
+        <div class="input-group">
+          <label for="doctorPassword">Password</label>
+          <div class="input-wrap">
+            <span class="input-icon">🔐</span>
+            <input type="password" id="doctorPassword" placeholder="••••••••" />
+          </div>
+        </div>
+
+        <p id="doctor-error-msg" class="error-msg" aria-live="polite"></p>
+
+        <button class="login-btn" onclick="testDoctorLogin()">
+          <span class="doctor-btn-text">Login to Dashboard (TEST) →</span>
+          <span class="doctor-loader spinner" style="display: none;" aria-hidden="true"></span>
+        </button>
+      </form>
+
+      <!-- Admin Login Form -->
+      <form id="adminForm" class="auth-method" onsubmit="return false;">
+        <div class="admin-security-note">
+          🔒 Secure Administrative Access
+        </div>
+
+        <div class="input-group">
+          <label for="adminPin">Admin PIN</label>
+          <div class="input-wrap">
+            <span class="input-icon">🔐</span>
+            <input type="password" id="adminPin" placeholder="••••" maxlength="4" inputmode="numeric" />
+          </div>
+        </div>
+
+        <p id="admin-error-msg" class="error-msg" aria-live="polite"></p>
+
+        <button class="login-btn admin-login-btn" onclick="testAdminLogin()">
+          <span class="admin-btn-text">Access Dashboard (TEST) →</span>
+          <span class="admin-loader spinner" style="display: none;" aria-hidden="true"></span>
+        </button>
+      </form>
+
+      <p class="login-footer-note">
+        Testing page for tab switching functionality
+      </p>
+    </div>
+
+  </div>
+
+  <script>
+    // Test utilities
+    const testLog = [];
+
+    function log(message, type = 'info') {
+      const entry = `[${new Date().toLocaleTimeString()}] ${message}`;
+      testLog.push({ message: entry, type });
+      updateLog();
+      console.log(message);
+    }
+
+    function updateLog() {
+      const logEl = document.getElementById('testLog');
+      logEl.innerHTML = testLog.slice(-10).map(e => 
+        `<div class="test-log-entry ${e.type}">${e.message}</div>`
+      ).join('');
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function clearLog() {
+      testLog.length = 0;
+      updateLog();
+      log('Log cleared', 'info');
+    }
+
+    function setStatus(status, type = 'info') {
+      const statusEl = document.getElementById('testStatus');
+      statusEl.textContent = status;
+      statusEl.style.background = type === 'error' ? '#fee2e2' : type === 'success' ? '#d1fae5' : '#fffbeb';
+      statusEl.style.color = type === 'error' ? '#991b1b' : type === 'success' ? '#065f46' : '#78350f';
+    }
+
+    // Test functions
+    function switchAuthTab(tabName) {
+      log(`Switching to ${tabName} tab...`, 'info');
+      
+      // Update tabs
+      document.querySelectorAll('.auth-tab').forEach(tab => {
+        tab.classList.remove('active');
+      });
+      const activeTab = document.querySelector(`[data-tab="${tabName}"]`);
+      if (activeTab) {
+        activeTab.classList.add('active');
+        log(`✓ Tab "${tabName}" marked as active`, 'success');
+      } else {
+        log(`✗ Tab element not found for "${tabName}"`, 'error');
+      }
+
+      // Update forms
+      document.querySelectorAll('.auth-method').forEach(form => {
+        form.classList.remove('active');
+        form.style.display = 'none';
+      });
+
+      const selectedForm = document.getElementById(`${tabName}Form`);
+      if (selectedForm) {
+        selectedForm.classList.add('active');
+        selectedForm.style.display = 'block';
+        const computed = window.getComputedStyle(selectedForm);
+        log(`✓ Form "${tabName}Form" is now visible (display: ${computed.display})`, 'success');
+        setStatus(`✅ ${tabName.toUpperCase()} tab active and form visible`, 'success');
+      } else {
+        log(`✗ Form element not found: ${tabName}Form`, 'error');
+        setStatus(`❌ Form not found: ${tabName}Form`, 'error');
+      }
+    }
+
+    function testPatientTab() {
+      switchAuthTab('patient');
+    }
+
+    function testDoctorTab() {
+      switchAuthTab('doctor');
+    }
+
+    function testAdminTab() {
+      switchAuthTab('admin');
+    }
+
+    function checkDOM() {
+      log('Checking DOM...', 'info');
+
+      const tabs = document.querySelectorAll('.auth-tab');
+      log(`Found ${tabs.length} tabs`, tabs.length === 3 ? 'success' : 'error');
+
+      const forms = ['patientForm', 'doctorForm', 'adminForm'];
+      forms.forEach(id => {
+        const form = document.getElementById(id);
+        if (form) {
+          const display = window.getComputedStyle(form).display;
+          log(`✓ ${id} exists (display: ${display})`, 'success');
+        } else {
+          log(`✗ ${id} NOT FOUND`, 'error');
+        }
+      });
+
+      const styles = document.querySelector('style');
+      if (styles && styles.textContent.includes('.auth-method')) {
+        log(`✓ CSS for .auth-method found`, 'success');
+      }
+
+      setStatus('✅ DOM Check Complete', 'success');
+    }
+
+    function testLogin() {
+      log('Patient form submit test', 'info');
+      setStatus('Patient login test clicked', 'info');
+    }
+
+    function testDoctorLogin() {
+      log('Doctor form submit test', 'info');
+      setStatus('Doctor login test clicked', 'info');
+    }
+
+    function testAdminLogin() {
+      log('Admin form submit test', 'info');
+      setStatus('Admin login test clicked', 'info');
+    }
+
+    // Initialize
+    window.addEventListener('load', () => {
+      log('Page loaded', 'success');
+      checkDOM();
+    });
+  </script>
+</body>
+</html>

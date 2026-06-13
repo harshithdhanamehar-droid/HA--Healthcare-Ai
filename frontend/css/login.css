@@ -235,6 +235,165 @@
   text-decoration: underline;
 }
 
+/* ── Auth Tabs ──────────────────────────────────────────────────── */
+.auth-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 12px;
+}
+.auth-tab {
+  flex: 1;
+  padding: 10px 8px;
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all var(--transition);
+}
+.auth-tab .tab-icon {
+  font-size: 16px;
+}
+.auth-tab:hover {
+  color: var(--text-secondary);
+}
+.auth-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* ── Auth Method Forms ──────────────────────────────────────────── */
+.auth-method {
+  display: none !important;
+}
+.auth-method.active {
+  display: block !important;
+}
+
+/* ── Divider ────────────────────────────────────────────────────── */
+.divider-or {
+  text-align: center;
+  margin: 20px 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  position: relative;
+}
+.divider-or::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  right: 0;
+  height: 1px;
+  background: var(--border-color);
+  z-index: 1;
+}
+.divider-or {
+  background: var(--bg-secondary);
+  position: relative;
+  z-index: 2;
+  padding: 0 8px;
+  width: fit-content;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/* ── Alternative Auth Buttons ──────────────────────────────────── */
+.auth-btn {
+  width: 100%;
+  padding: 12px 16px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all var(--transition);
+  margin-top: 8px;
+}
+.auth-btn:hover {
+  background: var(--bg-secondary);
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: translateY(-1px);
+}
+.auth-btn .auth-icon {
+  font-size: 16px;
+}
+
+/* Google Button Styling */
+.google-btn {
+  border-color: #dadce0;
+}
+.google-btn:hover {
+  background: #f8f9fa;
+  border-color: #d2d3d4;
+}
+
+/* Google Icon SVG */
+.google-icon {
+  width: 20px;
+  height: 20px;
+  display: inline-block;
+}
+
+.otp-btn {
+  margin-top: 8px;
+}
+
+/* ── Admin Security Note ────────────────────────────────────────── */
+.admin-security-note {
+  background: rgba(220, 38, 38, 0.1);
+  color: #991b1b;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  margin-bottom: 20px;
+  border-left: 3px solid #dc2626;
+}
+
+/* ── Toggle Password ────────────────────────────────────────────── */
+.toggle-password {
+  position: absolute;
+  right: 14px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  opacity: 0.6;
+  transition: opacity var(--transition);
+}
+.toggle-password:hover {
+  opacity: 1;
+}
+
+/* ── Admin Login Button ─────────────────────────────────────────── */
+.admin-login-btn {
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  color: white;
+  border: none;
+}
+.admin-login-btn:hover {
+  background: linear-gradient(135deg, #b91c1c 0%, #991b1b 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px rgba(220, 38, 38, 0.3);
+}
+
 /* ── Responsive ─────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   /* Body must start at top and scroll freely */

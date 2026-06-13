@@ -102,6 +102,19 @@ async function apiGet(endpoint) {
   return res.json();
 }
 
+async function apiPut(endpoint, body) {
+  const res = await fetch(`${API_BASE}${endpoint}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 async function apiDelete(endpoint) {
   const res = await fetch(`${API_BASE}${endpoint}`, { method: "DELETE" });
   if (!res.ok) {

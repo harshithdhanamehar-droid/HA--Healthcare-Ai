@@ -6,9 +6,29 @@ import uuid
 from datetime import datetime
 from typing import Optional, List
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
+# ─── AUTH MODULE ──────────────────────────────────────────────────────────────
+from auth import (
+    create_access_token,
+    verify_token,
+    verify_password,
+    hash_password,
+    generate_otp,
+    store_otp,
+    verify_otp,
+    send_otp_email,
+    verify_google_token,
+    link_google_auth,
+    get_user_by_google_sub,
+    create_doctor_account,
+    verify_doctor_credentials,
+    verify_admin_pin,
+    store_token,
+    invalidate_token,
+)
 
 # ─── LOGGING ─────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -49,11 +69,15 @@ def init_database():
         # Users
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
-                id         TEXT PRIMARY KEY,
-                name       TEXT NOT NULL,
-                phone      TEXT UNIQUE NOT NULL,
-                location   TEXT,
-                created_at TEXT NOT NULL
+                id              TEXT PRIMARY KEY,
+                name            TEXT NOT NULL,
+                email           TEXT UNIQUE,
+                phone           TEXT UNIQUE,
+                location        TEXT,
+                auth_provider   TEXT DEFAULT 'local',
+                google_sub      TEXT UNIQUE,
+                created_at      TEXT NOT NULL,
+                updated_at      TEXT NOT NULL
             )
         """)
 
@@ -92,23 +116,181 @@ def init_database():
             )
         """)
 
+        # Doctors (profile/availability data)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS doctors (
+                id               TEXT PRIMARY KEY,
+                doctor_name      TEXT NOT NULL,
+                email            TEXT,
+                specialty        TEXT NOT NULL,
+                location         TEXT NOT NULL,
+                hospital         TEXT,
+                experience       TEXT,
+                rating           REAL DEFAULT 4.5,
+                fee              INTEGER DEFAULT 500,
+                photo_url        TEXT,
+                is_online        BOOLEAN DEFAULT 1,
+                is_active        BOOLEAN DEFAULT 1,
+                created_at       TEXT NOT NULL,
+                updated_at       TEXT NOT NULL
+            )
+        """)
+
+        # Doctor accounts (for doctor login)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS doctor_accounts (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                doctor_id        TEXT UNIQUE NOT NULL,
+                doctor_name      TEXT NOT NULL,
+                email            TEXT UNIQUE NOT NULL,
+                password_hash    TEXT NOT NULL,
+                is_active        BOOLEAN DEFAULT 1,
+                verified         BOOLEAN DEFAULT 0,
+                created_at       TEXT NOT NULL,
+                updated_at       TEXT NOT NULL,
+                FOREIGN KEY (doctor_id) REFERENCES doctors(id)
+            )
+        """)
+
+        # Auth tokens (JWT-like session tracking)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS auth_tokens (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                token            TEXT UNIQUE NOT NULL,
+                user_id          TEXT NOT NULL,
+                user_role        TEXT NOT NULL,
+                expires_at       TEXT NOT NULL,
+                created_at       TEXT NOT NULL
+            )
+        """)
+
+        # OTP storage (email verification, forgot password)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS otp_store (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                email            TEXT NOT NULL,
+                otp_code         TEXT NOT NULL,
+                purpose          TEXT NOT NULL,
+                expires_at       TEXT NOT NULL,
+                created_at       TEXT NOT NULL
+            )
+        """)
+
+        # Google OAuth linkage
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS google_auth (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                google_sub       TEXT UNIQUE NOT NULL,
+                user_id          TEXT UNIQUE NOT NULL,
+                email            TEXT,
+                created_at       TEXT NOT NULL
+            )
+        """)
+
+        # Chat Sessions (for managing recent chats with titles)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS chat_sessions (
+                chat_id          TEXT PRIMARY KEY,
+                user_phone       TEXT NOT NULL,
+                title            TEXT,
+                preview          TEXT,
+                is_archived      BOOLEAN DEFAULT 0,
+                created_at       TEXT NOT NULL,
+                updated_at       TEXT NOT NULL,
+                FOREIGN KEY (user_phone) REFERENCES users(phone)
+            )
+        """)
+
+        # Email Logs (SMTP failure tracking)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS email_logs (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                recipient        TEXT NOT NULL,
+                email_type       TEXT NOT NULL,
+                subject          TEXT,
+                status           TEXT NOT NULL,
+                error_message    TEXT,
+                created_at       TEXT NOT NULL
+            )
+        """)
+
         # Indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_chat_phone   ON chat_history(user_phone)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_chat_id      ON chat_history(chat_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_apt_phone    ON appointments(patient_phone)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_apt_status   ON appointments(status)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_apt_date     ON appointments(appointment_date)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_doctor_email ON doctor_accounts(email)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_doctors_location ON doctors(location)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_doctors_specialty ON doctors(specialty)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_doctors_rating ON doctors(rating)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_otp_email    ON otp_store(email)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_google_sub   ON google_auth(google_sub)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_phone ON chat_sessions(user_phone)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_updated ON chat_sessions(updated_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_email_logs_recipient ON email_logs(recipient)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_email_logs_type ON email_logs(email_type)")
 
         conn.commit()
         conn.close()
-        logger.info("Database initialised successfully.")
+        logger.info("Database initialised successfully with auth tables.")
     except Exception as e:
         logger.error("Database initialisation failed: %s", e)
         raise
 
 init_database()
 
-# ─── DOCTORS DATA ─────────────────────────────────────────────────────────────
+def migrate_doctors_to_database():
+    """Migrate hardcoded DOCTORS list to SQLite database (one-time operation)."""
+    try:
+        conn = get_conn()
+        cursor = conn.cursor()
+        
+        # Check if doctors already migrated
+        cursor.execute("SELECT COUNT(*) as count FROM doctors")
+        count = cursor.fetchone()["count"]
+        
+        if count > 0:
+            logger.info("Doctors table already populated (%d doctors)", count)
+            conn.close()
+            return
+        
+        logger.info("Migrating hardcoded DOCTORS to database...")
+        
+        # Migrate all doctors from DOCTORS list
+        now = datetime.now().isoformat()
+        for doctor in DOCTORS:
+            cursor.execute("""
+                INSERT INTO doctors 
+                (id, doctor_name, email, specialty, location, hospital, 
+                 experience, rating, fee, photo_url, is_online, is_active, 
+                 created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                doctor["id"],
+                doctor["name"],
+                doctor.get("email", ""),
+                doctor["specialty"],
+                doctor.get("location", "Online"),
+                doctor.get("hospital", ""),
+                doctor["experience"],
+                doctor["rating"],
+                doctor["fee"],
+                doctor.get("photo_url", ""),
+                1,  # is_online
+                1,  # is_active
+                now,
+                now
+            ))
+        
+        conn.commit()
+        conn.close()
+        logger.info("Successfully migrated %d doctors to database", len(DOCTORS))
+        
+    except Exception as e:
+        logger.error("Doctor migration failed: %s", e)
+        raise
+
 # Each doctor has a photo_url field.
 # Set photo_url to a real image URL or "" to use the generated avatar fallback.
 DOCTORS = [
@@ -123,6 +305,7 @@ DOCTORS = [
         "photo_url": "",
         "image": "https://api.dicebear.com/7.x/personas/svg?seed=priya",
         "hospital": "HA! City Medical Center",
+        "location": "Hyderabad",
         "languages": ["English", "Hindi", "Telugu"],
     },
     {
@@ -136,6 +319,7 @@ DOCTORS = [
         "photo_url": "",
         "image": "https://api.dicebear.com/7.x/personas/svg?seed=arjun",
         "hospital": "HA! Heart Care Institute",
+        "location": "Mumbai",
         "languages": ["English", "Hindi"],
     },
     {
@@ -149,6 +333,7 @@ DOCTORS = [
         "photo_url": "",
         "image": "https://api.dicebear.com/7.x/personas/svg?seed=sneha",
         "hospital": "HA! Skin & Wellness Clinic",
+        "location": "Bangalore",
         "languages": ["English", "Telugu", "Kannada"],
     },
     {
@@ -162,6 +347,7 @@ DOCTORS = [
         "photo_url": "",
         "image": "https://api.dicebear.com/7.x/personas/svg?seed=rahul",
         "hospital": "HA! Neuro Sciences Center",
+        "location": "Delhi",
         "languages": ["English", "Hindi"],
     },
     {
@@ -175,6 +361,7 @@ DOCTORS = [
         "photo_url": "",
         "image": "https://api.dicebear.com/7.x/personas/svg?seed=kavitha",
         "hospital": "HA! Children's Health Hub",
+        "location": "Chennai",
         "languages": ["English", "Malayalam", "Tamil"],
     },
     {
@@ -188,6 +375,7 @@ DOCTORS = [
         "photo_url": "",
         "image": "https://api.dicebear.com/7.x/personas/svg?seed=suresh",
         "hospital": "HA! Bone & Joint Clinic",
+        "location": "Hyderabad",
         "languages": ["English", "Hindi", "Gujarati"],
     },
     {
@@ -201,6 +389,7 @@ DOCTORS = [
         "photo_url": "",
         "image": "https://api.dicebear.com/7.x/personas/svg?seed=ananya",
         "hospital": "HA! Mind & Wellness Center",
+        "location": "Bangalore",
         "languages": ["English", "Bengali", "Hindi"],
     },
     {
@@ -214,9 +403,13 @@ DOCTORS = [
         "photo_url": "",
         "image": "https://api.dicebear.com/7.x/personas/svg?seed=vikram",
         "hospital": "HA! Diabetes Care Center",
+        "location": "Mumbai",
         "languages": ["English", "Hindi", "Punjabi"],
     },
 ]
+
+# Run migration on startup - migrate hardcoded DOCTORS to SQLite database
+migrate_doctors_to_database()
 
 def get_doctor_display_image(doctor: dict) -> str:
     """Return photo_url if set, otherwise fall back to generated avatar."""
@@ -252,6 +445,18 @@ class UserRegister(BaseModel):
     phone: str
     location: str
 
+class UserLoginGoogle(BaseModel):
+    google_sub: str
+    email: str
+    name: str
+
+class UserUpdateLocation(BaseModel):
+    location: str
+
+class GoogleCheckUser(BaseModel):
+    google_sub: str
+    email: str
+
 # ─── GROQ AI SETUP ─────────────────────────────────────────────
 from groq import Groq
 from dotenv import load_dotenv
@@ -283,6 +488,207 @@ def call_ai(prompt: str, system_prompt: str = "") -> str:
 
     except Exception as e:
         return f"⚠️ AI Error: {str(e)}"
+
+# ─── SMTP EMAIL SERVICE ──────────────────────────────────────────────────────
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+def log_email(recipient: str, email_type: str, subject: str, status: str, error: str = None):
+    """Log email attempt to database for audit trail."""
+    try:
+        conn = get_conn()
+        cursor = conn.cursor()
+        now = datetime.now().isoformat()
+        cursor.execute("""
+            INSERT INTO email_logs (recipient, email_type, subject, status, error_message, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (recipient, email_type, subject, status, error, now))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error("Failed to log email: %s", e)
+
+def send_email(to_email: str, subject: str, html_body: str, email_type: str = "general") -> bool:
+    """
+    Send email via Gmail SMTP.
+    Returns True if sent, False if failed (but app continues).
+    Never raises exception — all errors are logged.
+    """
+    gmail_user = os.getenv("GMAIL_USER", "").strip()
+    gmail_pass = os.getenv("GMAIL_APP_PASSWORD", "").strip()
+    
+    # If credentials not set, log warning and continue
+    if not gmail_user or not gmail_pass:
+        error_msg = "GMAIL_USER or GMAIL_APP_PASSWORD not configured"
+        logger.warning("Email disabled: %s", error_msg)
+        log_email(to_email, email_type, subject, "skipped", error_msg)
+        return False
+    
+    try:
+        # Build message
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = gmail_user
+        msg["To"] = to_email
+        
+        # Add HTML body
+        part = MIMEText(html_body, "html")
+        msg.attach(part)
+        
+        # Send via Gmail SMTP
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
+            server.login(gmail_user, gmail_pass)
+            server.sendmail(gmail_user, to_email, msg.as_string())
+        
+        logger.info(f"Email sent to {to_email}: {subject}")
+        log_email(to_email, email_type, subject, "sent")
+        return True
+        
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"Email send failed to {to_email}: {error_msg}")
+        log_email(to_email, email_type, subject, "failed", error_msg)
+        return False
+
+def send_appointment_confirmation(appointment: dict):
+    """Send appointment confirmation email to user."""
+    subject = f"Appointment Confirmed with Dr. {appointment['doctor_name']}"
+    
+    html = f"""
+    <html>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <h2 style="color: #00d4aa;">Appointment Confirmed!</h2>
+        <p>Dear {appointment['patient_name']},</p>
+        <p>Your appointment has been successfully booked.</p>
+        
+        <div style="background: #f5f5f5; padding: 16px; border-radius: 8px; margin: 20px 0;">
+            <p><strong>Doctor:</strong> Dr. {appointment['doctor_name']}</p>
+            <p><strong>Specialty:</strong> {appointment['specialty']}</p>
+            <p><strong>Hospital:</strong> {appointment['hospital']}</p>
+            <p><strong>Date:</strong> {appointment['appointment_date']}</p>
+            <p><strong>Time:</strong> {appointment['appointment_time']}</p>
+            <p><strong>Appointment ID:</strong> {appointment['appointment_id']}</p>
+        </div>
+        
+        <p>Please arrive 15 minutes early. For any queries, contact us at +91-1234-567890.</p>
+        <p>Best regards,<br>HA! Healthcare AI Team</p>
+    </body>
+    </html>
+    """
+    
+    send_email(appointment.get("patient_email", ""), subject, html, "appointment_confirmation")
+
+def send_appointment_cancellation(appointment: dict):
+    """Send appointment cancellation email."""
+    subject = f"Appointment Cancelled - Dr. {appointment['doctor_name']}"
+    
+    html = f"""
+    <html>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <h2 style="color: #ef4444;">Appointment Cancelled</h2>
+        <p>Dear {appointment['patient_name']},</p>
+        <p>Your appointment has been cancelled.</p>
+        
+        <div style="background: #fff3cd; padding: 16px; border-radius: 8px; margin: 20px 0;">
+            <p><strong>Doctor:</strong> Dr. {appointment['doctor_name']}</p>
+            <p><strong>Original Date:</strong> {appointment['appointment_date']} at {appointment['appointment_time']}</p>
+            <p><strong>Appointment ID:</strong> {appointment['appointment_id']}</p>
+        </div>
+        
+        <p>To reschedule, please visit our app or contact us.</p>
+        <p>Best regards,<br>HA! Healthcare AI Team</p>
+    </body>
+    </html>
+    """
+    
+    send_email(appointment.get("patient_email", ""), subject, html, "appointment_cancellation")
+
+def send_otp_email_message(email: str, otp_code: str, purpose: str = "email_verification"):
+    """Send OTP via email."""
+    subject = f"Your HA! Healthcare Verification Code: {otp_code}"
+    
+    html = f"""
+    <html>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <h2 style="color: #00d4aa;">Verify Your Account</h2>
+        <p>Your verification code is:</p>
+        
+        <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: center;">
+            <h1 style="color: #00d4aa; letter-spacing: 2px; margin: 0;">{otp_code}</h1>
+        </div>
+        
+        <p>This code will expire in 10 minutes.</p>
+        <p>If you didn't request this code, please ignore this email.</p>
+        <p>Best regards,<br>HA! Healthcare AI Team</p>
+    </body>
+    </html>
+    """
+    
+    return send_email(email, subject, html, "otp_email")
+
+def send_doctor_notification(doctor_email: str, appointment: dict):
+    """Send appointment notification to doctor."""
+    subject = f"New Appointment: {appointment['patient_name']}"
+    
+    html = f"""
+    <html>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <h2 style="color: #3b82f6;">New Appointment Notification</h2>
+        <p>A new appointment has been booked.</p>
+        
+        <div style="background: #f5f5f5; padding: 16px; border-radius: 8px; margin: 20px 0;">
+            <p><strong>Patient:</strong> {appointment['patient_name']}</p>
+            <p><strong>Phone:</strong> {appointment['patient_phone']}</p>
+            <p><strong>Date & Time:</strong> {appointment['appointment_date']} at {appointment['appointment_time']}</p>
+            <p><strong>Symptoms/Reason:</strong> {appointment['symptoms']}</p>
+            <p><strong>Appointment ID:</strong> {appointment['appointment_id']}</p>
+        </div>
+        
+        <p>Please log in to your doctor dashboard to view details.</p>
+        <p>Best regards,<br>HA! Healthcare AI Team</p>
+    </body>
+    </html>
+    """
+    
+    send_email(doctor_email, subject, html, "doctor_notification")
+
+# ─── PYDANTIC MODELS FOR AUTHENTICATION ──────────────────────────────────────
+
+class UserLoginGoogleRequest(BaseModel):
+    token: str
+    name: Optional[str] = None
+
+class UserLoginOTPRequest(BaseModel):
+    email: str
+    otp_code: str
+
+class UserRequestOTPRequest(BaseModel):
+    email: str
+    purpose: str  # "verification" or "forgot_password"
+
+class DoctorLoginRequest(BaseModel):
+    email: str
+    password: str
+
+class DoctorRegisterRequest(BaseModel):
+    doctor_id: str
+    email: str
+    password: str
+
+class DoctorVerifyOTPRequest(BaseModel):
+    email: str
+    otp_code: str
+
+class AdminLoginRequest(BaseModel):
+    pin: str
+
+class TokenResponse(BaseModel):
+    token: str
+    user_id: str
+    role: str
+    expires_in: int
+
 # ─── ROUTES ───────────────────────────────────────────────────────────────────
 
 @app.get("/")
@@ -292,6 +698,8 @@ def home():
 @app.get("/health")
 def health_check():
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
+
+# ─── NEW JWT-BASED AUTH ROUTES ────────────────────────────────────────────────
 
 @app.post("/auth/register")
 def register(user: UserRegister):
@@ -308,26 +716,156 @@ def register(user: UserRegister):
             "success": True,
             "user_id": existing_user[0],
             "name": existing_user[1],
+            "location": existing_user[2],
             "message": "User already exists"
         }
     
     # Create new user
     user_id = str(uuid.uuid4())[:8]
-    created_at = datetime.now().isoformat()
+    now = datetime.now().isoformat()
     
     cursor.execute("""
-        INSERT INTO users (id, name, phone, location, created_at)
-        VALUES (?, ?, ?, ?, ?)
-    """, (user_id, user.name, user.phone, user.location, created_at))
+        INSERT INTO users (id, name, phone, location, auth_provider, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (user_id, user.name, user.phone, user.location, "local", now, now))
     
     conn.commit()
     conn.close()
+    
+    logger.info("User registered: %s (%s, %s)", user_id, user.name, user.phone)
     
     return {
         "success": True,
         "user_id": user_id,
         "name": user.name,
+        "location": user.location,
         "message": "User registered successfully"
+    }
+
+@app.post("/auth/google/check-user")
+def google_check_user(data: GoogleCheckUser):
+    """
+    Check if a user exists with Google account.
+    Used to determine if we need to ask for location on first Google login.
+    
+    Returns:
+    - exists: true/false
+    - user_id: (if exists)
+    - location: (if exists)
+    - needs_location: true if new user needs location entry
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Check if user exists by google_sub
+    cursor.execute("""
+        SELECT id, name, email, location FROM users WHERE google_sub = ?
+    """, (data.google_sub,))
+    user = cursor.fetchone()
+    conn.close()
+    
+    if user:
+        return {
+            "exists": True,
+            "user_id": user[0],
+            "name": user[1],
+            "email": user[2],
+            "location": user[3],
+            "needs_location": False
+        }
+    
+    return {
+        "exists": False,
+        "needs_location": True
+    }
+
+@app.post("/auth/google/register")
+def google_register(data: UserLoginGoogle):
+    """
+    Register or login user via Google OAuth.
+    If new user, requires location to be provided.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Check if user exists by google_sub
+    cursor.execute("""
+        SELECT id, name, email, location FROM users WHERE google_sub = ?
+    """, (data.google_sub,))
+    user = cursor.fetchone()
+    
+    if user:
+        # Existing user - just create JWT token
+        conn.close()
+        logger.info("Google user login: %s (%s)", user[0], user[1])
+        return {
+            "success": True,
+            "user_id": user[0],
+            "name": user[1],
+            "email": user[2],
+            "location": user[3],
+            "is_new": False,
+            "message": "Welcome back!"
+        }
+    
+    # New user - create with auth_provider = 'google'
+    # Location should be provided, but if not, it can be updated later
+    user_id = str(uuid.uuid4())[:8]
+    now = datetime.now().isoformat()
+    
+    # Extract location from request (optional, can be updated later)
+    location = getattr(data, 'location', None)
+    
+    cursor.execute("""
+        INSERT INTO users (id, name, email, google_sub, auth_provider, location, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (user_id, data.name, data.email, data.google_sub, "google", location, now, now))
+    
+    conn.commit()
+    conn.close()
+    
+    logger.info("Google user registered: %s (%s, %s)", user_id, data.name, data.email)
+    
+    return {
+        "success": True,
+        "user_id": user_id,
+        "name": data.name,
+        "email": data.email,
+        "location": location,
+        "is_new": True,
+        "message": "Welcome to HA! Healthcare"
+    }
+
+@app.post("/auth/user/{user_id}/location")
+def update_user_location(user_id: str, data: UserUpdateLocation):
+    """
+    Update user location. Used after first-time login if location wasn't provided.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Verify user exists
+    cursor.execute("SELECT id FROM users WHERE id = ?", (user_id,))
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Update location
+    now = datetime.now().isoformat()
+    cursor.execute("""
+        UPDATE users SET location = ?, updated_at = ? WHERE id = ?
+    """, (data.location, now, user_id))
+    
+    conn.commit()
+    conn.close()
+    
+    logger.info("User location updated: %s → %s", user_id, data.location)
+    
+    return {
+        "success": True,
+        "user_id": user_id,
+        "location": data.location,
+        "message": "Location updated successfully"
     }
 
 def validate_health_query(message: str) -> str:
@@ -381,6 +919,12 @@ async def chat(data: ChatRequest):
         cursor = conn.cursor()
         timestamp = datetime.now().isoformat()
         
+        # Create or update chat session
+        cursor.execute("""
+            INSERT OR IGNORE INTO chat_sessions (chat_id, user_phone, title, preview, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (data.chat_id, data.user_phone, data.message[:60], data.message[:80], timestamp, timestamp))
+        
         # Save user message
         cursor.execute("""
             INSERT INTO chat_history (user_phone, chat_id, role, message, created_at)
@@ -392,6 +936,11 @@ async def chat(data: ChatRequest):
             INSERT INTO chat_history (user_phone, chat_id, role, message, created_at)
             VALUES (?, ?, ?, ?, ?)
         """, (data.user_phone, data.chat_id, "assistant", reply, timestamp))
+        
+        # Update session's updated_at timestamp
+        cursor.execute("""
+            UPDATE chat_sessions SET updated_at = ? WHERE chat_id = ?
+        """, (timestamp, data.chat_id))
         
         conn.commit()
         conn.close()
@@ -424,20 +973,118 @@ async def symptom_check(data: SymptomRequest):
     }
 
 @app.get("/doctors")
-def get_doctors(specialty: Optional[str] = None):
-    doctors = DOCTORS
+def get_doctors(specialty: Optional[str] = None, location: Optional[str] = None, user_location: Optional[str] = None):
+    """
+    Get doctors from SQLite database with optional filtering by specialty and location.
+    
+    Parameters:
+    - specialty: Filter by specialty (case-insensitive partial match)
+    - location: Filter by exact location
+    - user_location: User's location to prioritize nearby doctors
+    
+    Returns doctors sorted by:
+    1. Same location as user (if user_location provided) - highest rated first
+    2. Other locations - highest rated first
+    3. If no user_location: sorted by rating descending
+    """
+    conn = get_conn()
+    cursor = conn.cursor()
+    
+    # Build SQL query with optional filters
+    query = "SELECT * FROM doctors WHERE is_active = 1"
+    params = []
+    
+    # Add specialty filter
     if specialty:
-        doctors = [d for d in doctors if specialty.lower() in d["specialty"].lower()]
-    # Inject resolved display image into each doctor
-    result = [{**d, "image": get_doctor_display_image(d)} for d in doctors]
+        query += " AND specialty LIKE ?"
+        params.append(f"%{specialty}%")
+    
+    # Add location filter (exact match)
+    if location:
+        query += " AND location = ?"
+        params.append(location)
+    
+    # Execute query
+    cursor.execute(query, params)
+    db_doctors = cursor.fetchall()
+    conn.close()
+    
+    # Convert sqlite3.Row objects to dictionaries
+    doctors = [dict(row) for row in db_doctors]
+    
+    # Sort by user location + rating (if user_location provided)
+    if user_location:
+        user_loc_lower = user_location.lower()
+        same_location = [d for d in doctors if d.get("location", "").lower() == user_loc_lower]
+        other_doctors = [d for d in doctors if d.get("location", "").lower() != user_loc_lower]
+        
+        # Sort each group by rating (descending)
+        same_location.sort(key=lambda x: x["rating"], reverse=True)
+        other_doctors.sort(key=lambda x: x["rating"], reverse=True)
+        
+        # Combine: same location doctors first, then top-rated from other locations
+        doctors = same_location + other_doctors
+    else:
+        # Default sort by rating descending
+        doctors.sort(key=lambda x: x["rating"], reverse=True)
+    
+    # Format for frontend response
+    result = []
+    for doc in doctors:
+        result.append({
+            "id": doc["id"],
+            "name": doc["doctor_name"],
+            "specialty": doc["specialty"],
+            "location": doc["location"],
+            "hospital": doc["hospital"],
+            "experience": doc["experience"],
+            "rating": doc["rating"],
+            "fee": doc["fee"],
+            "photo_url": doc["photo_url"],
+            "image": doc["photo_url"] or f"https://api.dicebear.com/7.x/personas/svg?seed={doc['doctor_name'].replace(' ', '').lower()}",
+            "is_online": doc["is_online"],
+            "available_slots": ["09:00 AM", "10:00 AM", "11:00 AM", "02:00 PM", "03:00 PM"],  # Generic slots
+            "languages": ["English", "Hindi"],  # Generic fallback
+        })
+    
     return {"doctors": result, "count": len(result)}
 
 @app.get("/doctors/{doctor_id}")
 def get_doctor(doctor_id: str):
-    doctor = next((d for d in DOCTORS if d["id"] == doctor_id), None)
+    """
+    Get a single doctor from SQLite database by ID.
+    Falls back to hardcoded DOCTORS list if not found (for backwards compatibility during migration).
+    """
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM doctors WHERE id = ? AND is_active = 1", (doctor_id,))
+    doctor = cursor.fetchone()
+    conn.close()
+    
     if not doctor:
-        raise HTTPException(status_code=404, detail="Doctor not found")
-    return {**doctor, "image": get_doctor_display_image(doctor)}
+        # Fallback to hardcoded DOCTORS list for backwards compatibility
+        doctor = next((d for d in DOCTORS if d["id"] == doctor_id), None)
+        if not doctor:
+            raise HTTPException(status_code=404, detail="Doctor not found")
+        return {**doctor, "image": get_doctor_display_image(doctor)}
+    
+    # Convert from database to frontend format
+    doc = dict(doctor)
+    return {
+        "id": doc["id"],
+        "name": doc["doctor_name"],
+        "specialty": doc["specialty"],
+        "location": doc["location"],
+        "hospital": doc["hospital"],
+        "experience": doc["experience"],
+        "rating": doc["rating"],
+        "fee": doc["fee"],
+        "photo_url": doc["photo_url"],
+        "image": doc["photo_url"] or f"https://api.dicebear.com/7.x/personas/svg?seed={doc['doctor_name'].replace(' ', '').lower()}",
+        "is_online": doc["is_online"],
+        "available_slots": ["09:00 AM", "10:00 AM", "11:00 AM", "02:00 PM", "03:00 PM"],
+        "languages": ["English", "Hindi"],
+    }
 
 # ─── APPOINTMENT HELPERS ──────────────────────────────────────────────────────
 
@@ -468,23 +1115,36 @@ VALID_STATUSES = {"pending", "confirmed", "completed", "cancelled"}
 
 @app.post("/appointments/book")
 def book_appointment(data: AppointmentRequest):
-    # Validate doctor
-    doctor = next((d for d in DOCTORS if d["id"] == data.doctor_id), None)
-    if not doctor:
-        logger.warning("Booking failed — doctor not found: %s", data.doctor_id)
-        raise HTTPException(status_code=404, detail="Doctor not found")
+    # Get doctor from database
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM doctors WHERE id = ? AND is_active = 1", (data.doctor_id,))
+    doctor_row = cursor.fetchone()
+    
+    if not doctor_row:
+        # Fallback to hardcoded DOCTORS for backwards compatibility
+        doctor_dict = next((d for d in DOCTORS if d["id"] == data.doctor_id), None)
+        if not doctor_dict:
+            logger.warning("Booking failed — doctor not found: %s", data.doctor_id)
+            conn.close()
+            raise HTTPException(status_code=404, detail="Doctor not found")
+        doctor = doctor_dict
+        doctor_email = doctor.get("email", "")
+    else:
+        doctor = dict(doctor_row)
+        doctor_email = doctor.get("email", "")
 
     if not data.patient_name.strip():
+        conn.close()
         raise HTTPException(status_code=422, detail="patient_name is required")
     if not data.patient_phone.strip():
+        conn.close()
         raise HTTPException(status_code=422, detail="patient_phone is required")
 
     appointment_id = "APT" + str(uuid.uuid4())[:6].upper()
     now = datetime.now().isoformat()
 
     try:
-        conn = get_conn()
-        cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO appointments
               (appointment_id, patient_name, patient_phone, patient_location,
@@ -497,47 +1157,70 @@ def book_appointment(data: AppointmentRequest):
             data.patient_name.strip(),
             data.patient_phone.strip(),
             (data.patient_location or "").strip(),
-            doctor["id"],
-            doctor["name"],
-            doctor["specialty"],
-            doctor["hospital"],
+            doctor.get("id") or data.doctor_id,
+            doctor.get("doctor_name") or doctor.get("name", "Doctor"),
+            doctor.get("specialty", "General"),
+            doctor.get("hospital", "HA! Medical Center"),
             data.date,
             data.time_slot,
             (data.reason or "").strip(),
-            doctor["fee"],
+            doctor.get("fee", 500),
             "pending",
             now, now,
         ))
         conn.commit()
-        conn.close()
+        
+        appointment_data = {
+            "appointment_id": appointment_id,
+            "patient_name": data.patient_name,
+            "patient_phone": data.patient_phone,
+            "patient_email": "",  # Could be fetched from users table if needed
+            "doctor_name": doctor.get("doctor_name") or doctor.get("name", "Doctor"),
+            "specialty": doctor.get("specialty", "General"),
+            "hospital": doctor.get("hospital", "HA! Medical Center"),
+            "appointment_date": data.date,
+            "appointment_time": data.time_slot,
+            "symptoms": data.reason or "",
+            "fee": doctor.get("fee", 500),
+        }
+        
+        # Send emails (non-blocking, errors logged)
+        send_appointment_confirmation(appointment_data)
+        if doctor_email:
+            send_doctor_notification(doctor_email, appointment_data)
+        
         logger.info("Appointment created: %s for %s with %s on %s %s",
-                    appointment_id, data.patient_name, doctor["name"], data.date, data.time_slot)
+                    appointment_id, data.patient_name, appointment_data["doctor_name"], data.date, data.time_slot)
     except sqlite3.IntegrityError as e:
+        conn.close()
         logger.error("Duplicate appointment_id collision: %s — %s", appointment_id, e)
         raise HTTPException(status_code=409, detail="Appointment ID collision, please retry")
     except Exception as e:
+        conn.close()
         logger.error("DB write failed for appointment: %s", e)
         raise HTTPException(status_code=500, detail="Database error, appointment not saved")
+    finally:
+        conn.close()
 
     appointment = {
         "id": appointment_id,
         "patient_name": data.patient_name,
         "patient_phone": data.patient_phone,
-        "doctor_id": doctor["id"],
-        "doctor_name": doctor["name"],
-        "specialty": doctor["specialty"],
-        "hospital": doctor["hospital"],
+        "doctor_id": doctor.get("id") or data.doctor_id,
+        "doctor_name": doctor.get("doctor_name") or doctor.get("name", "Doctor"),
+        "specialty": doctor.get("specialty", "General"),
+        "hospital": doctor.get("hospital", "HA! Medical Center"),
         "date": data.date,
         "time_slot": data.time_slot,
         "reason": data.reason or "",
-        "fee": doctor["fee"],
+        "fee": doctor.get("fee", 500),
         "status": "pending",
         "booked_at": now,
     }
     return {
         "success": True,
         "appointment": appointment,
-        "message": f"Appointment booked with {doctor['name']} on {data.date} at {data.time_slot}",
+        "message": f"Appointment booked with Dr. {appointment['doctor_name']} on {data.date} at {data.time_slot}",
     }
 
 @app.get("/appointments/{phone}")
@@ -626,33 +1309,39 @@ def get_health_tips():
 
 @app.get("/chat/history/{phone}")
 def get_chat_history(phone: str):
-    """Get all chat sessions for a user"""
+    """Get all chat sessions for a user, sorted by recent activity"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
-    # Get distinct chat sessions with first message preview
+    # Get chat sessions from chat_sessions table, ordered by most recent first
     cursor.execute("""
         SELECT 
             chat_id,
-            MIN(created_at) as first_message_time,
-            (SELECT message FROM chat_history 
-             WHERE chat_id = ch.chat_id AND role = 'user' 
-             ORDER BY created_at ASC LIMIT 1) as preview
-        FROM chat_history ch
-        WHERE user_phone = ?
-        GROUP BY chat_id
-        ORDER BY first_message_time DESC
+            title,
+            preview,
+            created_at,
+            updated_at,
+            is_archived
+        FROM chat_sessions
+        WHERE user_phone = ? AND is_archived = 0
+        ORDER BY updated_at DESC
+        LIMIT 50
     """, (phone,))
     
     sessions = []
     for row in cursor.fetchall():
-        chat_id, created_at, preview = row
+        chat_id, title, preview, created_at, updated_at, is_archived = row
+        # Use preview if set, otherwise get from first message
+        preview_text = preview or title or "New conversation"
         # Truncate preview to 60 characters
-        preview_text = preview[:60] + "..." if preview and len(preview) > 60 else preview
+        if preview_text and len(preview_text) > 60:
+            preview_text = preview_text[:60] + "..."
         sessions.append({
             "chat_id": chat_id,
+            "title": title or "Conversation",
             "preview": preview_text,
-            "created_at": created_at
+            "created_at": created_at,
+            "updated_at": updated_at
         })
     
     conn.close()
@@ -704,10 +1393,102 @@ def delete_chat_session(chat_id: str):
     
     # Delete all messages in the session
     cursor.execute("DELETE FROM chat_history WHERE chat_id = ?", (chat_id,))
+    
+    # Delete session record
+    cursor.execute("DELETE FROM chat_sessions WHERE chat_id = ?", (chat_id,))
+    
     conn.commit()
     conn.close()
     
     return {"success": True, "message": "Chat session deleted successfully"}
+
+@app.put("/chat/session/{chat_id}/rename")
+def rename_chat_session(chat_id: str, data: dict):
+    """Rename a chat session"""
+    title = data.get("title", "Conversation").strip()
+    
+    if not title:
+        raise HTTPException(status_code=400, detail="Title cannot be empty")
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Check if session exists
+    cursor.execute("SELECT COUNT(*) FROM chat_sessions WHERE chat_id = ?", (chat_id,))
+    if cursor.fetchone()[0] == 0:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Chat session not found")
+    
+    # Update title
+    cursor.execute("""
+        UPDATE chat_sessions SET title = ?, updated_at = ? WHERE chat_id = ?
+    """, (title, datetime.now().isoformat(), chat_id))
+    
+    conn.commit()
+    conn.close()
+    
+    return {"success": True, "message": "Chat renamed successfully", "title": title}
+
+@app.put("/chat/session/{chat_id}/archive")
+def archive_chat_session(chat_id: str):
+    """Archive a chat session"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Check if session exists
+    cursor.execute("SELECT is_archived FROM chat_sessions WHERE chat_id = ?", (chat_id,))
+    row = cursor.fetchone()
+    
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Chat session not found")
+    
+    # Toggle archive status
+    new_archive_state = not row[0]
+    cursor.execute("""
+        UPDATE chat_sessions SET is_archived = ?, updated_at = ? WHERE chat_id = ?
+    """, (new_archive_state, datetime.now().isoformat(), chat_id))
+    
+    conn.commit()
+    conn.close()
+    
+    action = "archived" if new_archive_state else "unarchived"
+    return {"success": True, "message": f"Chat {action} successfully", "is_archived": new_archive_state}
+
+@app.get("/chat/archived/{phone}")
+def get_archived_chats(phone: str):
+    """Get all archived chat sessions for a user"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT 
+            chat_id,
+            title,
+            preview,
+            created_at,
+            updated_at
+        FROM chat_sessions
+        WHERE user_phone = ? AND is_archived = 1
+        ORDER BY updated_at DESC
+    """, (phone,))
+    
+    sessions = []
+    for row in cursor.fetchall():
+        chat_id, title, preview, created_at, updated_at = row
+        preview_text = preview or title or "Archived conversation"
+        if preview_text and len(preview_text) > 60:
+            preview_text = preview_text[:60] + "..."
+        sessions.append({
+            "chat_id": chat_id,
+            "title": title or "Conversation",
+            "preview": preview_text,
+            "created_at": created_at,
+            "updated_at": updated_at
+        })
+    
+    conn.close()
+    return {"sessions": sessions, "count": len(sessions)}
 
 @app.post("/emergency/alert")
 async def emergency_alert(data: dict):
@@ -851,3 +1632,683 @@ def get_all_appointments():
     except Exception as e:
         logger.error("Admin appointments fetch error: %s", e)
         raise HTTPException(status_code=500, detail="Failed to retrieve appointments")
+
+# ─── DOCTOR ACCOUNT MANAGEMENT (ADMIN) ────────────────────────────────────────
+
+@app.get("/admin/doctors")
+def get_all_doctors():
+    """Admin: Get all doctor accounts."""
+    try:
+        conn = get_conn()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, doctor_id, doctor_name, email, is_active, verified, created_at, updated_at
+            FROM doctor_accounts
+            ORDER BY created_at DESC
+        """)
+        rows = cursor.fetchall()
+        conn.close()
+        
+        doctors = []
+        for row in rows:
+            doctors.append({
+                "id": row[0],
+                "doctor_id": row[1],
+                "doctor_name": row[2],
+                "email": row[3],
+                "is_active": bool(row[4]),
+                "verified": bool(row[5]),
+                "created_at": row[6],
+                "updated_at": row[7],
+            })
+        
+        logger.info("Admin retrieved %d doctor accounts", len(doctors))
+        return {"doctors": doctors, "count": len(doctors)}
+    except Exception as e:
+        logger.error("Error fetching doctor accounts: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to retrieve doctor accounts")
+
+@app.post("/admin/doctors")
+def create_doctor_account_admin(data: dict):
+    """Admin: Create a new doctor account."""
+    doctor_id = data.get("doctor_id", "").strip()
+    doctor_name = data.get("doctor_name", "").strip()
+    email = data.get("email", "").strip()
+    password = data.get("password", "").strip()
+    
+    if not doctor_id or not doctor_name or not email or not password:
+        raise HTTPException(status_code=422, detail="All fields (doctor_id, doctor_name, email, password) are required")
+    
+    if "@" not in email:
+        raise HTTPException(status_code=422, detail="Valid email required")
+    
+    if len(password) < 6:
+        raise HTTPException(status_code=422, detail="Password must be at least 6 characters")
+    
+    success, message = create_doctor_account(DB_PATH, doctor_id, doctor_name, email, password)
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    
+    logger.info("Admin created doctor account: %s (%s)", doctor_name, email)
+    return {"success": True, "message": message, "doctor_id": doctor_id}
+
+@app.put("/admin/doctors/{doctor_id}")
+def update_doctor_account(doctor_id: str, data: dict):
+    """Admin: Edit a doctor account (name, email, active status)."""
+    doctor_name = data.get("doctor_name", "").strip()
+    email = data.get("email", "").strip()
+    is_active = data.get("is_active", True)
+    
+    if not doctor_name or not email:
+        raise HTTPException(status_code=422, detail="doctor_name and email are required")
+    
+    if "@" not in email:
+        raise HTTPException(status_code=422, detail="Valid email required")
+    
+    try:
+        conn = get_conn()
+        cursor = conn.cursor()
+        
+        # Check if doctor exists
+        cursor.execute("SELECT id FROM doctor_accounts WHERE doctor_id = ?", (doctor_id,))
+        if not cursor.fetchone():
+            conn.close()
+            raise HTTPException(status_code=404, detail="Doctor account not found")
+        
+        # Check if new email already exists (for other doctors)
+        cursor.execute("SELECT id FROM doctor_accounts WHERE email = ? AND doctor_id != ?", (email, doctor_id))
+        if cursor.fetchone():
+            conn.close()
+            raise HTTPException(status_code=400, detail="Email already in use by another doctor")
+        
+        # Update doctor
+        now = datetime.now().isoformat()
+        cursor.execute("""
+            UPDATE doctor_accounts
+            SET doctor_name = ?, email = ?, is_active = ?, updated_at = ?
+            WHERE doctor_id = ?
+        """, (doctor_name, email, 1 if is_active else 0, now, doctor_id))
+        
+        conn.commit()
+        conn.close()
+        logger.info("Admin updated doctor account: %s", doctor_id)
+        
+        return {"success": True, "message": "Doctor account updated", "doctor_id": doctor_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error updating doctor account: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to update doctor account")
+
+@app.post("/admin/doctors/{doctor_id}/reset-password")
+def reset_doctor_password(doctor_id: str, data: dict):
+    """Admin: Reset doctor's password."""
+    new_password = data.get("password", "").strip()
+    
+    if not new_password or len(new_password) < 6:
+        raise HTTPException(status_code=422, detail="Password must be at least 6 characters")
+    
+    try:
+        conn = get_conn()
+        cursor = conn.cursor()
+        
+        # Check if doctor exists
+        cursor.execute("SELECT id FROM doctor_accounts WHERE doctor_id = ?", (doctor_id,))
+        if not cursor.fetchone():
+            conn.close()
+            raise HTTPException(status_code=404, detail="Doctor account not found")
+        
+        # Hash and update password
+        password_hash = hash_password(new_password)
+        now = datetime.now().isoformat()
+        cursor.execute("""
+            UPDATE doctor_accounts
+            SET password_hash = ?, updated_at = ?
+            WHERE doctor_id = ?
+        """, (password_hash, now, doctor_id))
+        
+        conn.commit()
+        conn.close()
+        logger.info("Admin reset password for doctor: %s", doctor_id)
+        
+        return {"success": True, "message": "Password reset successfully", "doctor_id": doctor_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error resetting doctor password: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to reset password")
+
+@app.post("/admin/doctors/{doctor_id}/activate")
+def toggle_doctor_active_status(doctor_id: str, data: dict):
+    """Admin: Activate/deactivate doctor login."""
+    is_active = data.get("is_active", True)
+    
+    try:
+        conn = get_conn()
+        cursor = conn.cursor()
+        
+        # Check if doctor exists
+        cursor.execute("SELECT id FROM doctor_accounts WHERE doctor_id = ?", (doctor_id,))
+        if not cursor.fetchone():
+            conn.close()
+            raise HTTPException(status_code=404, detail="Doctor account not found")
+        
+        # Toggle active status
+        now = datetime.now().isoformat()
+        cursor.execute("""
+            UPDATE doctor_accounts
+            SET is_active = ?, updated_at = ?
+            WHERE doctor_id = ?
+        """, (1 if is_active else 0, now, doctor_id))
+        
+        conn.commit()
+        conn.close()
+        status_text = "activated" if is_active else "deactivated"
+        logger.info("Admin %s doctor: %s", status_text, doctor_id)
+        
+        return {"success": True, "message": f"Doctor {status_text} successfully", "doctor_id": doctor_id, "is_active": is_active}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error toggling doctor active status: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to update doctor status")
+
+# ─── AUTHENTICATION ROUTES ───────────────────────────────────────────────────
+
+# ─── USER AUTHENTICATION ──────────────────────────────────────────────────────
+
+@app.post("/auth/user/google")
+def user_login_google(data: UserLoginGoogleRequest):
+    """
+    Google OAuth login for users.
+    Takes a Google token, creates/links user account.
+    """
+    # Verify Google token
+    google_info = verify_google_token(data.token)
+    if not google_info:
+        raise HTTPException(status_code=401, detail="Invalid Google token")
+    
+    google_sub = google_info.get("google_sub")
+    email = google_info.get("email")
+    name = data.name or google_info.get("name", "User")
+    
+    try:
+        # Check if user already linked to Google
+        user_id = get_user_by_google_sub(DB_PATH, google_sub)
+        
+        if not user_id:
+            # Create new user
+            user_id = str(uuid.uuid4())[:8]
+            conn = get_conn()
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO users (id, name, phone, location, created_at)
+                VALUES (?, ?, ?, ?, ?)
+            """, (user_id, name, f"google_{google_sub}", "", datetime.now().isoformat()))
+            conn.commit()
+            conn.close()
+            
+            # Link Google account
+            link_google_auth(DB_PATH, google_sub, user_id, email)
+        
+        # Create JWT token
+        access_token = create_access_token(user_id, "user")
+        store_token(DB_PATH, access_token, user_id, "user")
+        
+        logger.info("User logged in via Google: %s", user_id)
+        return TokenResponse(
+            token=access_token,
+            user_id=user_id,
+            role="user",
+            expires_in=int(os.getenv("JWT_EXPIRE_MINUTES", 1440)) * 60
+        )
+    except Exception as e:
+        logger.error("Google login error: %s", e)
+        raise HTTPException(status_code=500, detail="Authentication failed")
+
+@app.post("/auth/user/otp/request")
+def user_request_otp(data: UserRequestOTPRequest):
+    """
+    Request OTP for user email verification or password reset.
+    """
+    if not data.email or "@" not in data.email:
+        raise HTTPException(status_code=422, detail="Valid email required")
+    
+    if data.purpose not in ("verification", "forgot_password"):
+        raise HTTPException(status_code=422, detail="Invalid purpose")
+    
+    # Generate OTP
+    otp_code = generate_otp()
+    
+    # Store OTP
+    if not store_otp(DB_PATH, data.email, otp_code, data.purpose):
+        raise HTTPException(status_code=500, detail="Failed to store OTP")
+    
+    # Send OTP email
+    if not send_otp_email(data.email, otp_code, data.purpose):
+        logger.warning("OTP email failed but OTP was stored: %s", data.email)
+        return {
+            "success": False,
+            "message": "OTP generated but email delivery failed. Contact support.",
+            "email": data.email,
+        }
+    
+    logger.info("OTP requested for %s (%s)", data.email, data.purpose)
+    return {
+        "success": True,
+        "message": f"OTP sent to {data.email}",
+        "email": data.email,
+    }
+
+@app.post("/auth/user/otp/verify")
+def user_verify_otp(data: UserLoginOTPRequest):
+    """
+    Verify OTP and create user account or reset password.
+    """
+    if not verify_otp(DB_PATH, data.email, data.otp_code, "verification"):
+        raise HTTPException(status_code=401, detail="Invalid or expired OTP")
+    
+    try:
+        conn = get_conn()
+        cursor = conn.cursor()
+        
+        # Check if user exists
+        cursor.execute("SELECT id FROM users WHERE phone = ?", (data.email,))
+        result = cursor.fetchone()
+        
+        if result:
+            user_id = result[0]
+        else:
+            # Create new user
+            user_id = str(uuid.uuid4())[:8]
+            cursor.execute("""
+                INSERT INTO users (id, name, phone, location, created_at)
+                VALUES (?, ?, ?, ?, ?)
+            """, (user_id, data.email.split("@")[0], data.email, "", datetime.now().isoformat()))
+        
+        conn.commit()
+        conn.close()
+        
+        # Create JWT token
+        access_token = create_access_token(user_id, "user")
+        store_token(DB_PATH, access_token, user_id, "user")
+        
+        logger.info("User verified OTP: %s", user_id)
+        return TokenResponse(
+            token=access_token,
+            user_id=user_id,
+            role="user",
+            expires_in=int(os.getenv("JWT_EXPIRE_MINUTES", 1440)) * 60
+        )
+    except Exception as e:
+        logger.error("OTP verification error: %s", e)
+        raise HTTPException(status_code=500, detail="Verification failed")
+
+# ─── DOCTOR AUTHENTICATION ────────────────────────────────────────────────────
+
+@app.post("/auth/doctor/register")
+def doctor_register(data: DoctorRegisterRequest):
+    """
+    Register a doctor account with email and password.
+    """
+    if not data.email or "@" not in data.email:
+        raise HTTPException(status_code=422, detail="Valid email required")
+    if len(data.password) < 6:
+        raise HTTPException(status_code=422, detail="Password must be at least 6 characters")
+    
+    success, message = create_doctor_account(DB_PATH, data.doctor_id, data.doctor_id, data.email, data.password)
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    
+    logger.info("Doctor registered: %s (%s)", data.doctor_id, data.email)
+    return {"success": True, "message": message, "doctor_id": data.doctor_id}
+
+@app.post("/auth/doctor/login")
+def doctor_login(data: DoctorLoginRequest):
+    """
+    Doctor login with email and password.
+    """
+    success, doctor_id, doctor_name = verify_doctor_credentials(DB_PATH, data.email, data.password)
+    if not success:
+        # Return specific error messages
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM doctor_accounts WHERE email = ?", (data.email,))
+        if not cursor.fetchone():
+            conn.close()
+            raise HTTPException(status_code=401, detail="Doctor account not found")
+        conn.close()
+        raise HTTPException(status_code=401, detail="Incorrect password")
+    
+    # Create JWT token with doctor metadata
+    access_token = create_access_token(doctor_id, "doctor", doctor_name)
+    store_token(DB_PATH, access_token, doctor_id, "doctor")
+    
+    logger.info("Doctor logged in: %s (%s)", doctor_id, doctor_name)
+    return TokenResponse(
+        token=access_token,
+        user_id=doctor_id,
+        role="doctor",
+        expires_in=int(os.getenv("JWT_EXPIRE_MINUTES", 1440)) * 60
+    )
+
+@app.post("/auth/doctor/otp/verify")
+def doctor_verify_otp(data: DoctorVerifyOTPRequest):
+    """
+    Verify OTP for doctor account (optional second factor).
+    """
+    if not verify_otp(DB_PATH, data.email, data.otp_code, "doctor_verification"):
+        raise HTTPException(status_code=401, detail="Invalid or expired OTP")
+    
+    # Mark doctor as verified in database
+    try:
+        conn = get_conn()
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE doctor_accounts SET verified=1 WHERE email=?
+        """, (data.email,))
+        cursor.execute("SELECT doctor_id FROM doctor_accounts WHERE email=?", (data.email,))
+        result = cursor.fetchone()
+        conn.commit()
+        conn.close()
+        
+        if result:
+            logger.info("Doctor OTP verified: %s", result[0])
+            return {"success": True, "message": "Doctor verified successfully"}
+    except Exception as e:
+        logger.error("Doctor OTP verification error: %s", e)
+        raise HTTPException(status_code=500, detail="Verification failed")
+
+# ─── ADMIN AUTHENTICATION ────────────────────────────────────────────────────
+
+@app.post("/auth/admin/login")
+def admin_login(data: AdminLoginRequest):
+    """
+    Admin login with PIN.
+    """
+    if not verify_admin_pin(data.pin):
+        raise HTTPException(status_code=401, detail="Invalid admin PIN")
+    
+    # Create JWT token for admin
+    admin_id = "admin"
+    access_token = create_access_token(admin_id, "admin")
+    store_token(DB_PATH, access_token, admin_id, "admin")
+    
+    logger.info("Admin logged in")
+    return TokenResponse(
+        token=access_token,
+        user_id=admin_id,
+        role="admin",
+        expires_in=int(os.getenv("JWT_EXPIRE_MINUTES", 1440)) * 60
+    )
+
+# ─── TOKEN VERIFICATION ───────────────────────────────────────────────────────
+
+@app.get("/auth/verify")
+def verify_token_endpoint(authorization: Optional[str] = Header(None)):
+    """
+    Verify JWT token validity.
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
+    
+    token = authorization.split(" ")[1]
+    token_payload = verify_token(token)
+    
+    if not token_payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    
+    return {
+        "valid": True,
+        "user_id": token_payload.sub,
+        "role": token_payload.role,
+        "expires_at": token_payload.exp,
+    }
+
+@app.post("/auth/logout")
+def logout(authorization: Optional[str] = Header(None)):
+    """
+    Logout — invalidate token.
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
+    
+    token = authorization.split(" ")[1]
+    invalidate_token(DB_PATH, token)
+    
+    logger.info("Token invalidated")
+    return {"success": True, "message": "Logged out successfully"}
+
+# ─── ADMIN: DOCTOR ACCOUNT MANAGEMENT ──────────────────────────────────────────
+
+class DoctorAccountCreate(BaseModel):
+    doctor_id: str
+    doctor_name: str
+    email: str
+    password: str
+
+class DoctorAccountUpdate(BaseModel):
+    doctor_name: Optional[str] = None
+    email: Optional[str] = None
+    password: Optional[str] = None
+    is_active: Optional[bool] = None
+
+class DoctorAccountPasswordReset(BaseModel):
+    new_password: str
+
+@app.post("/admin/doctors/accounts/create")
+def admin_create_doctor_account(data: DoctorAccountCreate):
+    """
+    Admin endpoint: Create a new doctor account.
+    """
+    success, message = create_doctor_account(DB_PATH, data.doctor_id, data.doctor_name, data.email, data.password)
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    
+    logger.info("Admin created doctor account: %s (%s)", data.doctor_id, data.email)
+    return {
+        "success": True,
+        "message": message,
+        "doctor_id": data.doctor_id,
+        "email": data.email,
+    }
+
+@app.get("/admin/doctors/accounts")
+def admin_get_doctor_accounts():
+    """
+    Admin endpoint: List all doctor accounts.
+    """
+    try:
+        conn = get_conn()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, doctor_id, doctor_name, email, is_active, verified, created_at
+            FROM doctor_accounts
+            ORDER BY created_at DESC
+        """)
+        rows = cursor.fetchall()
+        conn.close()
+        
+        accounts = []
+        for row in rows:
+            accounts.append({
+                "id": row["id"],
+                "doctor_id": row["doctor_id"],
+                "doctor_name": row["doctor_name"],
+                "email": row["email"],
+                "is_active": bool(row["is_active"]),
+                "verified": bool(row["verified"]),
+                "created_at": row["created_at"],
+            })
+        
+        logger.info("Admin retrieved %d doctor accounts", len(accounts))
+        return {
+            "success": True,
+            "accounts": accounts,
+            "count": len(accounts),
+        }
+    except Exception as e:
+        logger.error("Error retrieving doctor accounts: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to retrieve accounts")
+
+@app.get("/admin/doctors/accounts/{doctor_id}")
+def admin_get_doctor_account(doctor_id: str):
+    """
+    Admin endpoint: Get a specific doctor account.
+    """
+    try:
+        conn = get_conn()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, doctor_id, doctor_name, email, is_active, verified, created_at
+            FROM doctor_accounts
+            WHERE doctor_id = ?
+        """, (doctor_id,))
+        row = cursor.fetchone()
+        conn.close()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="Doctor account not found")
+        
+        return {
+            "success": True,
+            "account": {
+                "id": row["id"],
+                "doctor_id": row["doctor_id"],
+                "doctor_name": row["doctor_name"],
+                "email": row["email"],
+                "is_active": bool(row["is_active"]),
+                "verified": bool(row["verified"]),
+                "created_at": row["created_at"],
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error retrieving doctor account: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to retrieve account")
+
+@app.patch("/admin/doctors/accounts/{doctor_id}")
+def admin_update_doctor_account(doctor_id: str, data: DoctorAccountUpdate):
+    """
+    Admin endpoint: Update a doctor account.
+    """
+    try:
+        conn = get_conn()
+        cursor = conn.cursor()
+        
+        # Verify doctor account exists
+        cursor.execute("SELECT id FROM doctor_accounts WHERE doctor_id = ?", (doctor_id,))
+        if not cursor.fetchone():
+            conn.close()
+            raise HTTPException(status_code=404, detail="Doctor account not found")
+        
+        updates = {}
+        if data.doctor_name is not None:
+            updates["doctor_name"] = data.doctor_name
+        if data.email is not None:
+            # Check if email is already in use
+            cursor.execute("SELECT id FROM doctor_accounts WHERE email = ? AND doctor_id != ?", (data.email, doctor_id))
+            if cursor.fetchone():
+                conn.close()
+                raise HTTPException(status_code=400, detail="Email already in use")
+            updates["email"] = data.email
+        if data.password is not None:
+            updates["password_hash"] = hash_password(data.password)
+        if data.is_active is not None:
+            updates["is_active"] = 1 if data.is_active else 0
+        
+        if not updates:
+            conn.close()
+            return {"success": True, "message": "No changes made"}
+        
+        # Build update query
+        set_clause = ", ".join([f"{k} = ?" for k in updates.keys()])
+        set_clause += ", updated_at = ?"
+        values = list(updates.values()) + [datetime.now().isoformat(), doctor_id]
+        
+        cursor.execute(f"UPDATE doctor_accounts SET {set_clause} WHERE doctor_id = ?", values)
+        conn.commit()
+        conn.close()
+        
+        logger.info("Admin updated doctor account: %s", doctor_id)
+        return {
+            "success": True,
+            "message": "Doctor account updated successfully",
+            "doctor_id": doctor_id,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error updating doctor account: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to update account")
+
+@app.post("/admin/doctors/accounts/{doctor_id}/reset-password")
+def admin_reset_doctor_password(doctor_id: str, data: DoctorAccountPasswordReset):
+    """
+    Admin endpoint: Reset a doctor's password.
+    """
+    try:
+        conn = get_conn()
+        cursor = conn.cursor()
+        
+        # Verify doctor account exists
+        cursor.execute("SELECT id FROM doctor_accounts WHERE doctor_id = ?", (doctor_id,))
+        if not cursor.fetchone():
+            conn.close()
+            raise HTTPException(status_code=404, detail="Doctor account not found")
+        
+        password_hash = hash_password(data.new_password)
+        cursor.execute(
+            "UPDATE doctor_accounts SET password_hash = ?, updated_at = ? WHERE doctor_id = ?",
+            (password_hash, datetime.now().isoformat(), doctor_id)
+        )
+        conn.commit()
+        conn.close()
+        
+        logger.info("Admin reset password for doctor: %s", doctor_id)
+        return {
+            "success": True,
+            "message": "Password reset successfully",
+            "doctor_id": doctor_id,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error resetting doctor password: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to reset password")
+
+@app.delete("/admin/doctors/accounts/{doctor_id}")
+def admin_delete_doctor_account(doctor_id: str):
+    """
+    Admin endpoint: Delete/deactivate a doctor account.
+    """
+    try:
+        conn = get_conn()
+        cursor = conn.cursor()
+        
+        # Verify doctor account exists
+        cursor.execute("SELECT id FROM doctor_accounts WHERE doctor_id = ?", (doctor_id,))
+        if not cursor.fetchone():
+            conn.close()
+            raise HTTPException(status_code=404, detail="Doctor account not found")
+        
+        # Soft delete — deactivate instead of deleting
+        cursor.execute(
+            "UPDATE doctor_accounts SET is_active = 0, updated_at = ? WHERE doctor_id = ?",
+            (datetime.now().isoformat(), doctor_id)
+        )
+        conn.commit()
+        conn.close()
+        
+        logger.info("Admin deactivated doctor account: %s", doctor_id)
+        return {
+            "success": True,
+            "message": "Doctor account deactivated successfully",
+            "doctor_id": doctor_id,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error deleting doctor account: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to delete account")

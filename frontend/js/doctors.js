@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   HA! — Doctors & Booking Logic
+   HA! — Doctors & Booking Logic with Location-Aware Recommendations
    ═══════════════════════════════════════════════════════════════ */
 
 let allDoctors = [];
@@ -10,8 +10,22 @@ let currentSpecialty = "all";
 // ── Load Doctors ──────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", async () => {
   try {
-    const data = await apiGet("/doctors");
+    // Get user location from localStorage
+    const userLocation = localStorage.getItem("ha_location");
+    
+    // Build API URL with user_location parameter
+    const apiUrl = userLocation 
+      ? `/doctors?user_location=${encodeURIComponent(userLocation)}`
+      : "/doctors";
+    
+    const data = await apiGet(apiUrl);
     allDoctors = data.doctors;
+    
+    // Show location-aware message if user has location
+    if (userLocation) {
+      showLocationMessage(userLocation);
+    }
+    
     renderDoctors(allDoctors);
   } catch (err) {
     document.getElementById("doctors-grid").innerHTML = `
@@ -21,6 +35,24 @@ document.addEventListener("DOMContentLoaded", async () => {
       </div>`;
   }
 });
+
+function showLocationMessage(location) {
+  const container = document.getElementById("doctors-grid");
+  if (!container) return;
+  
+  const message = document.createElement("div");
+  message.style.cssText = `
+    padding: 12px 16px;
+    background: rgba(52, 168, 224, 0.1);
+    border-left: 4px solid var(--accent);
+    margin-bottom: 16px;
+    border-radius: 4px;
+    font-size: 14px;
+    color: var(--accent);
+  `;
+  message.innerHTML = `📍 Showing doctors near <strong>${escapeHtml(location)}</strong> first`;
+  container.parentElement.insertBefore(message, container);
+}
 
 function renderDoctors(doctors) {
   const grid = document.getElementById("doctors-grid");
@@ -43,15 +75,21 @@ function doctorCard(doc) {
          onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"
        /><div class="doctor-avatar" style="display:none">${initial}</div>`
     : `<div class="doctor-avatar">${initial}</div>`;
+  
+  const userLocation = localStorage.getItem("ha_location");
+  const isNearby = userLocation && doc.location && doc.location.toLowerCase() === userLocation.toLowerCase();
+  const nearbyBadge = isNearby ? `<div class="nearby-badge">📍 Near You</div>` : "";
 
   return `
     <div class="doctor-card">
+      ${nearbyBadge}
       <div class="doctor-card-top">
         <div class="doctor-avatar-wrap">${avatarHtml}</div>
         <div class="doctor-info">
           <div class="doctor-name">${escapeHtml(doc.name)}</div>
           <div class="doctor-specialty">${escapeHtml(doc.specialty)}</div>
           <div class="doctor-hospital">🏥 ${escapeHtml(doc.hospital)}</div>
+          <div class="doctor-location" style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">📍 ${escapeHtml(doc.location || 'Online')}</div>
         </div>
       </div>
       <div class="doctor-meta">
