@@ -71,6 +71,7 @@
   border-right: 1px solid var(--border-color);
   position: relative;
   overflow: hidden;
+  min-height: 100vh;
 }
 .login-brand::before {
   content: '';
@@ -139,6 +140,9 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
+  min-height: 700px;
+  max-height: 85vh;
+  overflow-y: auto;
 }
 
 .login-card-header {
@@ -189,10 +193,14 @@
   font-size: 15px;
   outline: none;
   transition: border-color var(--transition), box-shadow var(--transition);
+  position: relative;
+  z-index: 2;
+  pointer-events: auto;
 }
 .input-wrap input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-glow);
+  outline: none;
 }
 .input-wrap input::placeholder { color: var(--text-muted); }
 
@@ -424,3 +432,45 @@
     justify-content: flex-start;
   }
 }
+
+/* ── Error message ─────────────────────────────────────────────── */
+.error-msg {
+  font-size: 13px;
+  color: var(--accent-red, #ef4444);
+  min-height: 18px;
+  margin-bottom: 4px;
+  line-height: 1.4;
+}
+
+/* ── OTP sent notice ───────────────────────────────────────────── */
+.otp-sent-notice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(0, 212, 170, 0.08);
+  border: 1px solid rgba(0, 212, 170, 0.25);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 20px;
+}
+.otp-sent-notice .otp-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+.otp-sent-notice strong {
+  color: var(--accent, #00d4aa);
+  font-size: 14px;
+}
+
+/* ── Spinner ────────────────────────────────────────────────────── */
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(0,0,0,0.2);
+  border-top-color: #0f1117;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  display: inline-block;
+  vertical-align: middle;
+}
+@keyframes spin { to { transform: rotate(360deg); } }

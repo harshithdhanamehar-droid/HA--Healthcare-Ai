@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Inspect Sidebar Layout</title>
+  <style>
+    body { font-family: monospace; background: #1a1a1a; color: #fff; padding: 20px; }
+    .container { background: #2a2a2a; padding: 20px; border-radius: 8px; margin: 20px 0; }
+    .header { font-size: 18px; font-weight: bold; color: #00d4aa; margin-bottom: 10px; }
+    .property { padding: 8px; margin: 5px 0; background: #333; border-left: 3px solid #00d4aa; }
+    .label { color: #7dd3fc; font-weight: bold; }
+    .value { color: #10b981; }
+    .error { color: #ef4444; }
+    .success { color: #10b981; }
+    button { padding: 10px 20px; margin: 10px; background: #00d4aa; color: #000; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+    button:hover { background: #00b38f; }
+    #output { max-height: 600px; overflow-y: auto; }
+  </style>
+</head>
+<body>
+  <h1>🔍 Sidebar DOM Inspector</h1>
+  <button onclick="inspectSidebar()">Inspect Sidebar Layout</button>
+  <button onclick="testScrolling()">Test Scrolling</button>
+  <button onclick="clearOutput()">Clear</button>
+  
+  <div id="output"></div>
+
+  <script>
+    function log(text, type = 'normal') {
+      const output = document.getElementById('output');
+      const div = document.createElement('div');
+      div.className = 'property';
+      
+      if (type === 'header') {
+        div.className = 'container header';
+      } else if (type === 'success') {
+        div.innerHTML = `<span class="success">✓ ${text}</span>`;
+      } else if (type === 'error') {
+        div.innerHTML = `<span class="error">✗ ${text}</span>`;
+      } else {
+        div.innerHTML = text;
+      }
+      
+      output.appendChild(div);
+    }
+
+    function clearOutput() {
+      document.getElementById('output').innerHTML = '';
+    }
+
+    function getComputedStyles(element, name) {
+      if (!element) return null;
+      const styles = window.getComputedStyle(element);
+      return {
+        name: name,
+        element: element,
+        display: styles.display,
+        flex: styles.flex,
+        flexShrink: styles.flexShrink,
+        flexBasis: styles.flexBasis,
+        overflow: styles.overflow,
+        overflowY: styles.overflowY,
+        overflowX: styles.overflowX,
+        height: styles.height,
+        maxHeight: styles.maxHeight,
+        minHeight: styles.minHeight,
+        width: styles.width,
+        position: styles.position,
+        zIndex: styles.zIndex,
+        padding: styles.padding,
+        margin: styles.margin,
+        borderBottom: styles.borderBottom,
+      };
+    }
+
+    function inspectSidebar() {
+      clearOutput();
+      log('Inspecting Sidebar Structure', 'header');
+      
+      const sidebar = document.querySelector('.sidebar');
+      const historySection = document.querySelector('.chat-history-section');
+      const searchBox = document.querySelector('.history-search-box');
+      const historyList = document.querySelector('.history-list');
+      const historyItems = document.querySelectorAll('.history-item');
+      const sidebarNav = document.querySelector('.sidebar-nav');
+      const sidebarFooter = document.querySelector('.sidebar-footer');
+
+      // Check existence
+      log(`<span class="label">Elements Found:</span>`);
+      log(sidebar ? `<span class="success">✓ .sidebar</span>` : `<span class="error">✗ .sidebar NOT FOUND</span>`);
+      log(historySection ? `<span class="success">✓ .chat-history-section</span>` : `<span class="error">✗ .chat-history-section NOT FOUND</span>`);
+      log(searchBox ? `<span class="success">✓ .history-search-box</span>` : `<span class="error">✗ .history-search-box NOT FOUND</span>`);
+      log(historyList ? `<span class="success">✓ .history-list</span>` : `<span class="error">✗ .history-list NOT FOUND</span>`);
+      log(`Found <span class="value">${historyItems.length}</span> .history-item(s)`);
+
+      if (!sidebar || !historySection || !searchBox || !historyList) {
+        log('Cannot proceed — missing key elements', 'error');
+        return;
+      }
+
+      // Inspect each element
+      log('', 'header');
+      log('📊 <span class="label">.sidebar Computed Styles:</span>');
+      let styles = getComputedStyles(sidebar, 'sidebar');
+      showStyles(styles);
+
+      log('', 'header');
+      log('📊 <span class="label">.chat-history-section Computed Styles:</span>');
+      styles = getComputedStyles(historySection, 'chat-history-section');
+      showStyles(styles);
+
+      log('', 'header');
+      log('📊 <span class="label">.history-search-box Computed Styles:</span>');
+      styles = getComputedStyles(searchBox, 'history-search-box');
+      showStyles(styles);
+
+      log('', 'header');
+      log('📊 <span class="label">.history-list Computed Styles:</span>');
+      styles = getComputedStyles(historyList, 'history-list');
+      showStyles(styles);
+
+      // Check for overflow issues
+      log('', 'header');
+      log('🔍 <span class="label">Overflow Analysis:</span>');
+      
+      if (historyList.scrollHeight > historyList.clientHeight) {
+        log(`<span class="success">✓ Items exceed container (${historyList.scrollHeight}px > ${historyList.clientHeight}px) — Scrolling needed</span>`);
+        log(`<span class="success">✓ Scrollbar should be visible</span>`);
+      } else {
+        log(`<span class="value">ℹ Items fit in container (${historyList.scrollHeight}px ≤ ${historyList.clientHeight}px) — No scrolling needed</span>`);
+      }
+
+      // Verify CSS properties are correct
+      log('', 'header');
+      log('✅ <span class="label">CSS Verification:</span>');
+      
+      const checks = [
+        { prop: 'overflow-y', el: historyList, value: 'auto', desc: 'history-list should scroll vertically' },
+        { prop: 'flex-shrink', el: searchBox, value: '0', desc: 'search-box should not shrink' },
+        { prop: 'z-index', el: searchBox, value: '10', desc: 'search-box z-index should be 10' },
+        { prop: 'flex-basis', el: historyList, value: '0px', desc: 'history-list flex-basis should be 0' },
+      ];
+
+      checks.forEach(check => {
+        const actual = window.getComputedStyle(check.el).getPropertyValue(check.prop).trim();
+        if (actual === check.value) {
+          log(`<span class="success">✓ ${check.desc} (${check.prop}: ${check.value})</span>`);
+        } else {
+          log(`<span class="error">✗ ${check.desc} (${check.prop}: ${actual}, expected: ${check.value})</span>`);
+        }
+      });
+
+      log('', 'header');
+      log('✨ <span class="label">Summary:</span>');
+      log(`Sidebar height: <span class="value">${sidebar.offsetHeight}px</span>`);
+      log(`History section height: <span class="value">${historySection.offsetHeight}px</span>`);
+      log(`History list height: <span class="value">${historyList.offsetHeight}px</span>`);
+      log(`History list scrollHeight: <span class="value">${historyList.scrollHeight}px</span>`);
+    }
+
+    function showStyles(styles) {
+      if (!styles) return;
+      log(`<span class="label">display:</span> <span class="value">${styles.display}</span>`);
+      log(`<span class="label">flex:</span> <span class="value">${styles.flex}</span>`);
+      log(`<span class="label">flexShrink:</span> <span class="value">${styles.flexShrink}</span>`);
+      log(`<span class="label">flexBasis:</span> <span class="value">${styles.flexBasis}</span>`);
+      log(`<span class="label">height:</span> <span class="value">${styles.height}</span>`);
+      log(`<span class="label">maxHeight:</span> <span class="value">${styles.maxHeight}</span>`);
+      log(`<span class="label">minHeight:</span> <span class="value">${styles.minHeight}</span>`);
+      log(`<span class="label">overflow:</span> <span class="value">${styles.overflow}</span>`);
+      log(`<span class="label">overflowY:</span> <span class="value">${styles.overflowY}</span>`);
+      log(`<span class="label">zIndex:</span> <span class="value">${styles.zIndex}</span>`);
+    }
+
+    function testScrolling() {
+      clearOutput();
+      log('Testing Scroll Behavior', 'header');
+
+      const historyList = document.querySelector('.history-list');
+      if (!historyList) {
+        log('Cannot find .history-list', 'error');
+        return;
+      }
+
+      log(`Initial scrollTop: <span class="value">${historyList.scrollTop}px</span>`);
+      log(`Scrolling to bottom...`);
+      
+      historyList.scrollTop = historyList.scrollHeight;
+      
+      log(`After scroll scrollTop: <span class="value">${historyList.scrollTop}px</span>`);
+      log(`<span class="success">✓ Scroll works!</span>`);
+
+      log('', 'header');
+      log('Search box should remain at top (not moving)');
+      const searchBox = document.querySelector('.history-search-box');
+      const searchTop = searchBox.getBoundingClientRect().top;
+      log(`Search box top position: <span class="value">${searchTop}px</span> (should be small/fixed)`);
+    }
+
+    // Auto-inspect on page load if elements exist
+    window.addEventListener('load', () => {
+      setTimeout(() => {
+        if (document.querySelector('.sidebar')) {
+          log('Page loaded — elements found. Click "Inspect Sidebar Layout" to analyze.', 'success');
+        } else {
+          log('Page loaded but sidebar elements not found. Make sure you\'re on chat.html after login.', 'error');
+        }
+      }, 500);
+    });
+  </script>
+</body>
+</html>

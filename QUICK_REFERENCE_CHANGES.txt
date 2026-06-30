@@ -1,0 +1,199 @@
+════════════════════════════════════════════════════════════════════════════════
+  SIDEBAR RECENT CHATS FIX — QUICK REFERENCE
+════════════════════════════════════════════════════════════════════════════════
+
+FILE: frontend/css/chat.css
+STATUS: ✅ MODIFIED & VALIDATED
+
+════════════════════════════════════════════════════════════════════════════════
+CHANGE #1 — Line 130: Remove max-height
+════════════════════════════════════════════════════════════════════════════════
+
+BEFORE:
+  .chat-history-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-bottom: 1px solid var(--glass-border);
+    min-height: 0;
+    max-height: calc(100vh - 220px);  ❌ REMOVED
+  }
+
+AFTER:
+  .chat-history-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-bottom: 1px solid var(--glass-border);
+    min-height: 0;
+  }
+
+WHY: Artificial height limit prevented flex sizing from working properly.
+     With flex: 1, element should take remaining space naturally.
+
+════════════════════════════════════════════════════════════════════════════════
+CHANGE #2 — Line 149: Adjust z-index
+════════════════════════════════════════════════════════════════════════════════
+
+BEFORE:
+  .history-search-box {
+    z-index: 20;  ❌ TOO HIGH
+  }
+
+AFTER:
+  .history-search-box {
+    z-index: 10;  ✅ ADJUSTED
+  }
+
+WHY: Excessively high z-index (20) could cause visual layering issues.
+     Reduced to 10 while maintaining visibility over items (z-index: 1).
+
+════════════════════════════════════════════════════════════════════════════════
+CHANGE #3 — Lines 180-181: Add flex constraints
+════════════════════════════════════════════════════════════════════════════════
+
+BEFORE:
+  .history-list {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0 10px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-height: 0;
+  }
+
+AFTER:
+  .history-list {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0 10px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-height: 0;
+    max-height: 100%;         ✅ ADDED
+    flex-basis: 0;           ✅ ADDED
+  }
+
+WHY: • max-height: 100% — Prevents list from exceeding parent container
+     • flex-basis: 0 — Ensures proper flex item sizing in column layout
+
+════════════════════════════════════════════════════════════════════════════════
+CHANGE #4 — Lines 1033-1035: Remove mobile max-height
+════════════════════════════════════════════════════════════════════════════════
+
+BEFORE (Mobile @media):
+  @media (max-width: 768px) {
+    .chat-history-section {
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .history-list {
+      max-height: calc(100% - 60px);  ❌ REMOVED
+    }
+
+    .history-actions {
+      opacity: 0.7;
+    }
+
+AFTER (Mobile @media):
+  @media (max-width: 768px) {
+    .chat-history-section {
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .history-actions {
+      opacity: 0.7;
+    }
+
+WHY: Unnecessary override breaks flex consistency.
+     Mobile should use same flex sizing as desktop.
+
+════════════════════════════════════════════════════════════════════════════════
+CHANGE #5 — Line 1087: Fix CSS syntax error
+════════════════════════════════════════════════════════════════════════════════
+
+BEFORE:
+  .send-btn {
+    width: 36px;
+    height: 36px;
+  }
+}
+  }      ❌ STRAY CLOSING BRACE
+
+  /* Dim overlay when sidebar is open */
+  .sidebar.open ~ .main-content::before {
+    ...
+  }
+
+AFTER:
+  .send-btn {
+    width: 36px;
+    height: 36px;
+  }
+
+  /* Dim overlay when sidebar is open */
+  .sidebar.open ~ .main-content::before {
+    ...
+  }
+
+WHY: Orphaned } at line 1088 was breaking CSS parsing.
+     Moved rules back into proper media query context.
+
+════════════════════════════════════════════════════════════════════════════════
+SUMMARY
+════════════════════════════════════════════════════════════════════════════════
+
+Total Changes:        5 CSS modifications
+File:                 frontend/css/chat.css
+Lines Modified:       125-130, 149, 180-181, 1033-1035, 1087
+CSS Validation:       ✅ PASSED
+Status:               ✅ READY FOR DEPLOYMENT
+
+BEFORE: Recent chats hidden/clipped under search bar
+AFTER:  Recent chats visible, scrollable, properly positioned
+
+════════════════════════════════════════════════════════════════════════════════
+TESTING COMMANDS
+════════════════════════════════════════════════════════════════════════════════
+
+# Start backend
+cd backend
+python main.py
+
+# Open browser
+http://localhost:5000/chat.html
+
+# Verify in DevTools (F12):
+# 1. Inspect .history-list
+# 2. Check Computed tab
+# 3. Verify: overflow-y: auto, flex: 1, max-height: 100%
+
+════════════════════════════════════════════════════════════════════════════════
+EXPECTED RESULTS
+════════════════════════════════════════════════════════════════════════════════
+
+✅ Search box fixed at top of sidebar
+✅ Recent chat items appear below search box
+✅ Chat items scroll independently
+✅ Scrollbar visible when items exceed space
+✅ No clipping or overlapping
+✅ Menu items remain accessible
+✅ Profile/Logout button at bottom
+✅ Works on desktop, tablet, mobile
+
+════════════════════════════════════════════════════════════════════════════════
+ROLLBACK (if needed)
+════════════════════════════════════════════════════════════════════════════════
+
+Restore original frontend/css/chat.css and reload page.
+Risk: Low (pure CSS changes, no data loss)
+
+════════════════════════════════════════════════════════════════════════════════
