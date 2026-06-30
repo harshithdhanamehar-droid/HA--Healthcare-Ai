@@ -913,13 +913,8 @@ tbody tr:hover{background:rgba(255,255,255,.03)}
   <div class="lc">
     <div class="lc-logo">HA<span>!</span></div>
     <div class="lc-badge">Admin Portal</div>
-    <h2>Welcome back</h2>
-    <p>Enter your admin PIN to access the dashboard</p>
-    <label class="lc-label" for="pin">Admin PIN</label>
-    <input type="password" id="pin" class="lc-input" placeholder="••••••"
-           maxlength="20" autocomplete="off" onkeydown="if(event.key==='Enter')doLogin()"/>
-    <button class="lc-btn" onclick="doLogin()">Unlock Dashboard</button>
-    <div id="pin-err" class="lc-err"></div>
+    <h2>Access Denied</h2>
+    <p id="pin-err">Redirecting to login page...</p>
   </div>
 </div>
 
@@ -1545,32 +1540,20 @@ tbody tr:hover{background:rgba(255,255,255,.03)}
 /* ═══════════════════════════════════════════════════
    CONFIG
 ═══════════════════════════════════════════════════ */
-const ADMIN_PIN = "admin2024";
-const AUTH_KEY  = "ha_admin_v3";
 const PAGE_SIZE = 10;
 const API = (location.protocol==="file:"||location.hostname==="localhost"||location.hostname==="127.0.0.1")
   ? "http://127.0.0.1:8000" : "https://ha-healthcare-ai.onrender.com";
 
-const DOCTORS_STATIC = [
-  {name:"Dr. Priya Sharma",specialty:"General Physician",hospital:"HA! City Medical Center",experience:"12 years",rating:4.9,fee:500},
-  {name:"Dr. Arjun Mehta",specialty:"Cardiologist",hospital:"HA! Heart Care Institute",experience:"18 years",rating:4.8,fee:1200},
-  {name:"Dr. Sneha Reddy",specialty:"Dermatologist",hospital:"HA! Skin & Wellness Clinic",experience:"9 years",rating:4.7,fee:800},
-  {name:"Dr. Rahul Verma",specialty:"Neurologist",hospital:"HA! Neuro Sciences Center",experience:"15 years",rating:4.9,fee:1500},
-  {name:"Dr. Kavitha Nair",specialty:"Pediatrician",hospital:"HA! Children's Health Hub",experience:"11 years",rating:4.8,fee:600},
-  {name:"Dr. Suresh Patel",specialty:"Orthopedic Surgeon",hospital:"HA! Bone & Joint Clinic",experience:"20 years",rating:4.9,fee:1000},
-  {name:"Dr. Ananya Das",specialty:"Psychiatrist",hospital:"HA! Mind & Wellness Center",experience:"8 years",rating:4.7,fee:900},
-  {name:"Dr. Vikram Singh",specialty:"Diabetologist",hospital:"HA! Diabetes Care Center",experience:"14 years",rating:4.8,fee:700},
-];
+const DOCTORS_STATIC = [];  // Deprecated: doctors now fetched from API
 
 /* ═══════════════════════════════════════════════════
    STATE
 ═══════════════════════════════════════════════════ */
 const S = {
-  users:[], chats:[], stats:{},
+  users:[], chats:[], stats:{}, doctors:[],
   uPage:1, cPage:1,
   uFilter:"", cFilter:"",
   uSort:{col:"created_at",dir:"desc"},
-  pin:ADMIN_PIN,
   interval:30,
   timer:null,
   prevUsers:null,
@@ -1585,8 +1568,14 @@ const S = {
    BOOT
 ═══════════════════════════════════════════════════ */
 document.addEventListener("DOMContentLoaded", () => {
-  if (sessionStorage.getItem(AUTH_KEY) === "true") showDash();
-  else showLogin();
+  const token = localStorage.getItem("ha_auth_token");
+  const role = localStorage.getItem("ha_role");
+  if (token && role === "admin") {
+    showDash();
+  } else {
+    showLogin();
+    setTimeout(() => window.location.replace("index.html"), 1500);
+  }
 });
 
 // Global Escape key closes any open modal
@@ -1602,7 +1591,7 @@ document.addEventListener("keydown", e => {
 function showLogin() {
   document.getElementById("login-gate").style.display = "flex";
   document.getElementById("shell").style.display = "none";
-  setTimeout(() => document.getElementById("pin").focus(), 100);
+  document.getElementById("pin-err").textContent = "Redirecting to login page...";
 }
 
 function showDash() {
@@ -1624,33 +1613,21 @@ function showDash() {
   });
 }
 
-function doLogin() {
-  const pin = (document.getElementById("pin").value || "").trim();
-  const err = document.getElementById("pin-err");
-  if (pin === S.pin) {
-    sessionStorage.setItem(AUTH_KEY, "true");
-    err.textContent = "";
-    showDash();
-  } else {
-    err.textContent = "Incorrect PIN. Please try again.";
-    document.getElementById("pin").value = "";
-    document.getElementById("pin").focus();
-  }
-}
-
 function doLogout() {
-  sessionStorage.removeItem(AUTH_KEY);
+  localStorage.removeItem("ha_auth_token");
+  localStorage.removeItem("ha_role");
+  localStorage.removeItem("ha_user_id");
+  localStorage.removeItem("ha_email");
+  localStorage.removeItem("ha_name");
+  localStorage.removeItem("ha_logged_in");
+  sessionStorage.clear();
   clearInterval(S.timer);
   // Reset state so stale data doesn't flash on next login
   S.users = []; S.chats = []; S.stats = {};
   S.prevUsers = null; S.newUserCount = 0;
   // Destroy any active Chart.js instances
   Object.keys(S.charts).forEach(k => { if (S.charts[k]) { S.charts[k].destroy(); S.charts[k] = null; } });
-  // Clear the PIN input in case it had a value
-  const pinEl = document.getElementById("pin");
-  if (pinEl) { pinEl.value = ""; }
-  // Stay on admin.html — just show the lock screen again
-  showLogin();
+  window.location.replace("index.html");
 }
 
 /* ═══════════════════════════════════════════════════
@@ -2025,21 +2002,33 @@ function renderChatTables() {
 /* ═══════════════════════════════════════════════════
    DOCTORS
 ═══════════════════════════════════════════════════ */
-function renderDoctors() {
+async function renderDoctors() {
   const tbody = document.getElementById("doc-tbody");
   if (!tbody) return;
-  tbody.innerHTML = DOCTORS_STATIC.map(d => `
-    <tr>
-      <td><div class="cell-name">
-        <div class="av" style="background:linear-gradient(135deg,#8B5CF6,#3B82F6)">
-          ${d.name.split(" ")[1][0]}</div>
-        <span class="nm">${x(d.name)}</span></div></td>
-      <td><span class="badge purple">${x(d.specialty)}</span></td>
-      <td>${x(d.hospital)}</td>
-      <td>${x(d.experience)}</td>
-      <td><span style="color:#F59E0B;font-weight:700">★ ${d.rating}</span></td>
-      <td>₹${d.fee}</td>
-    </tr>`).join("");
+  
+  try {
+    const res = await fetch(`${API_BASE}/doctors`);
+    const data = await res.json();
+    S.doctors = data.doctors || [];
+    $("doc-count", S.doctors.length);
+    
+    tbody.innerHTML = S.doctors.map(d => `
+      <tr>
+        <td><div class="cell-name">
+          <div class="av" style="background:linear-gradient(135deg,#8B5CF6,#3B82F6)">
+            ${d.name.split(" ")[1][0]}</div>
+          <span class="nm">${x(d.name)}</span></div></td>
+        <td><span class="badge purple">${x(d.specialty)}</span></td>
+        <td>${x(d.hospital)}</td>
+        <td>${x(d.experience)}</td>
+        <td><span style="color:#F59E0B;font-weight:700">★ ${d.rating || 4.5}</span></td>
+        <td>₹${d.fee || 500}</td>
+      </tr>`).join("");
+  } catch (e) {
+    console.error("Failed to load doctors:", e);
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--t3)">
+      Failed to load doctors from database</td></tr>`;
+  }
 }
 
 /* ═══════════════════════════════════════════════════

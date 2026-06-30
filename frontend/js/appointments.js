@@ -105,10 +105,15 @@ async function confirmCancel() {
   try {
     await apiDelete(`/appointments/${cancelTargetId}`);
     closeCancelModal();
-    loadAppointments();
+    
+    // Show success toast
+    showToast("✅ Appointment cancelled successfully", "success");
+    
+    // Reload appointments after a brief delay to show toast
+    setTimeout(() => loadAppointments(), 1500);
   } catch (err) {
-    alert(`Failed to cancel: ${err.message}`);
-  } finally {
+    // Show error toast instead of alert
+    showToast(`❌ Failed to cancel: ${err.message}`, "error");
     btn.disabled = false;
     btn.textContent = "Yes, Cancel";
   }
@@ -120,4 +125,76 @@ function escapeHtml(text) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+// Toast notification system
+function showToast(message, type = "success") {
+  // Create toast container if it doesn't exist
+  let toastContainer = document.getElementById("toast-container");
+  if (!toastContainer) {
+    toastContainer = document.createElement("div");
+    toastContainer.id = "toast-container";
+    toastContainer.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 10000;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      pointer-events: none;
+    `;
+    document.body.appendChild(toastContainer);
+  }
+
+  // Create toast element
+  const toast = document.createElement("div");
+  const bgColor = type === "success" ? "#10b981" : "#ef4444";
+  const textColor = "#ffffff";
+  
+  toast.style.cssText = `
+    background: ${bgColor};
+    color: ${textColor};
+    padding: 14px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    animation: slideIn 0.3s ease;
+    max-width: 400px;
+    pointer-events: all;
+    cursor: pointer;
+  `;
+  
+  toast.textContent = message;
+  toastContainer.appendChild(toast);
+
+  // Auto-remove after 4 seconds
+  setTimeout(() => {
+    toast.style.animation = "slideOut 0.3s ease";
+    setTimeout(() => toast.remove(), 300);
+  }, 4000);
+
+  // Click to dismiss
+  toast.onclick = () => {
+    toast.style.animation = "slideOut 0.3s ease";
+    setTimeout(() => toast.remove(), 300);
+  };
+}
+
+// Add CSS animations for toast
+if (!document.getElementById("toast-styles")) {
+  const style = document.createElement("style");
+  style.id = "toast-styles";
+  style.textContent = `
+    @keyframes slideIn {
+      from { transform: translateX(400px); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes slideOut {
+      from { transform: translateX(0); opacity: 1; }
+      to { transform: translateX(400px); opacity: 0; }
+    }
+  `;
+  document.head.appendChild(style);
 }

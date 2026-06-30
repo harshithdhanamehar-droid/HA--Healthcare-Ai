@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doctor Dashboard - HA! Healthcare AI</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/pages.css">
+    <style>
+        :root {
+            --accent: #00d4aa;
+            --accent-blue: #3b82f6;
+            --accent-red: #ef4444;
+            --accent-green: #10b981;
+            --bg-dark: #0a0e27;
+            --text-dark: #f0f0f0;
+            --border-color: rgba(0, 212, 170, 0.2);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
+            color: var(--text-dark);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            min-height: 100vh;
+        }
+
+        .dashboard-container {
+            display: flex;
+            height: 100vh;
+            background: var(--bg-dark);
+        }
+
+        .sidebar {
+            width: 250px;
+            background: rgba(0, 0, 0, 0.4);
+            border-right: 1px solid var(--border-color);
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .sidebar-header {
+            font-size: 20px;
+            font-weight: bold;
+            color: var(--accent);
+            margin-bottom: 30px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .sidebar-menu {
+            list-style: none;
+        }
+
+        .sidebar-menu li {
+            margin-bottom: 10px;
+        }
+
+        .sidebar-menu a {
+            display: block;
+            padding: 12px 15px;
+            color: var(--text-dark);
+            text-decoration: none;
+            border-radius: 8px;
+            border-left: 3px solid transparent;
+            transition: all 0.3s ease;
+            font-size: 14px;
+        }
+
+        .sidebar-menu a:hover {
+            background: rgba(0, 212, 170, 0.1);
+            border-left-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .sidebar-menu a.active {
+            background: rgba(0, 212, 170, 0.15);
+            border-left-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .main-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 30px;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .header-left h1 {
+            font-size: 28px;
+            color: var(--accent);
+            margin-bottom: 5px;
+        }
+
+        .header-left p {
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        .header-right {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .notification-badge {
+            position: relative;
+        }
+
+        .notification-icon {
+            font-size: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .notification-icon:hover {
+            color: var(--accent);
+        }
+
+        .badge {
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            background: var(--accent-red);
+            color: white;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .logout-btn {
+            padding: 8px 20px;
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--accent-red);
+            border: 1px solid var(--accent-red);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .logout-btn:hover {
+            background: rgba(239, 68, 68, 0.3);
+        }
+
+        .section {
+            margin-bottom: 40px;
+        }
+
+        .section-title {
+            font-size: 20px;
+            font-weight: bold;
+            color: var(--accent);
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .section-title .count {
+            background: rgba(0, 212, 170, 0.2);
+            padding: 2px 10px;
+            border-radius: 20px;
+            font-size: 14px;
+            color: var(--accent);
+        }
+
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .card:hover {
+            background: rgba(0, 212, 170, 0.08);
+            border-color: rgba(0, 212, 170, 0.5);
+            transform: translateY(-2px);
+        }
+
+        .appointment-card {
+            background: rgba(255, 255, 255, 0.03);
+            border-left: 4px solid var(--accent);
+        }
+
+        .appointment-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 12px;
+        }
+
+        .patient-name {
+            font-size: 16px;
+            font-weight: bold;
+            color: var(--accent);
+        }
+
+        .appointment-time {
+            font-size: 14px;
+            background: rgba(0, 212, 170, 0.15);
+            color: var(--accent);
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+
+        .appointment-details {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.7);
+            margin: 8px 0;
+        }
+
+        .appointment-details strong {
+            color: var(--text-dark);
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-top: 8px;
+        }
+
+        .status-pending {
+            background: rgba(59, 130, 246, 0.2);
+            color: var(--accent-blue);
+        }
+
+        .status-confirmed {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--accent-green);
+        }
+
+        .status-completed {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--accent-green);
+        }
+
+        .status-cancelled {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--accent-red);
+        }
+
+        .notification-item {
+            background: rgba(255, 255, 255, 0.03);
+            border-left: 4px solid var(--accent-blue);
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .notification-item:hover {
+            background: rgba(59, 130, 246, 0.1);
+        }
+
+        .notification-item.unread {
+            background: rgba(59, 130, 246, 0.08);
+            border-left-color: var(--accent);
+        }
+
+        .notification-title {
+            font-weight: bold;
+            color: var(--text-dark);
+            margin-bottom: 5px;
+        }
+
+        .notification-message {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+
+        .filter-buttons {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .filter-btn {
+            padding: 8px 16px;
+            background: rgba(0, 212, 170, 0.1);
+            color: var(--accent);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.3s ease;
+        }
+
+        .filter-btn:hover,
+        .filter-btn.active {
+            background: rgba(0, 212, 170, 0.2);
+            border-color: var(--accent);
+        }
+
+        .tabs {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .tab-btn {
+            padding: 12px 0;
+            background: none;
+            border: none;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 14px;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.3s ease;
+        }
+
+        .tab-btn:hover,
+        .tab-btn.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        .spinner {
+            display: inline-block;
+            border: 2px solid rgba(0, 212, 170, 0.2);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 768px) {
+            .dashboard-container {
+                flex-direction: column;
+            }
+
+            .sidebar {
+                width: 100%;
+                height: auto;
+                border-right: none;
+                border-bottom: 1px solid var(--border-color);
+                padding: 15px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+
+            .sidebar-menu {
+                display: flex;
+                gap: 15px;
+            }
+
+            .cards-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 15px;
+            }
+
+            .header-right {
+                width: 100%;
+                justify-content: space-between;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                🏥 HA! Doctor
+            </div>
+            <ul class="sidebar-menu">
+                <li><a href="#dashboard" class="nav-link active" data-section="dashboard">📊 Dashboard</a></li>
+                <li><a href="#appointments" class="nav-link" data-section="appointments">📅 Appointments</a></li>
+                <li><a href="#notifications" class="nav-link" data-section="notifications">🔔 Notifications</a></li>
+                <li><a href="#profile" class="nav-link" data-section="profile">👤 Profile</a></li>
+                <li><a href="#" class="nav-link" onclick="logoutDoctor()">🚪 Logout</a></li>
+            </ul>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Header -->
+            <div class="header">
+                <div class="header-left">
+                    <h1 id="doctorName">Welcome, Doctor</h1>
+                    <p id="doctorEmail">doctor@hospital.com</p>
+                </div>
+                <div class="header-right">
+                    <div class="notification-badge">
+                        <span class="notification-icon" onclick="navigateTo('notifications')">🔔</span>
+                        <span class="badge" id="notificationBadge" style="display: none;">0</span>
+                    </div>
+                    <button class="logout-btn" onclick="logoutDoctor()">Logout</button>
+                </div>
+            </div>
+
+            <!-- Dashboard Section -->
+            <div id="dashboardSection" class="section-content">
+                <!-- Today's Appointments -->
+                <div class="section">
+                    <div class="section-title">
+                        📅 Today's Appointments
+                        <span class="count" id="todayCount">0</span>
+                    </div>
+                    <div id="todayAppointments" class="cards-grid">
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📭</div>
+                            <p>No appointments today</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Upcoming Appointments -->
+                <div class="section">
+                    <div class="section-title">
+                        📆 Upcoming Appointments (Next 7 Days)
+                        <span class="count" id="upcomingCount">0</span>
+                    </div>
+                    <div id="upcomingAppointments" class="cards-grid">
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📭</div>
+                            <p>No upcoming appointments</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Appointments Section -->
+            <div id="appointmentsSection" class="section-content" style="display: none;">
+                <div class="section">
+                    <div class="section-title">All Appointments</div>
+                    <div class="filter-buttons">
+                        <button class="filter-btn active" data-filter="all" onclick="filterAppointments('all')">All</button>
+                        <button class="filter-btn" data-filter="today" onclick="filterAppointments('today')">Today</button>
+                        <button class="filter-btn" data-filter="upcoming" onclick="filterAppointments('upcoming')">Upcoming</button>
+                        <button class="filter-btn" data-filter="completed" onclick="filterAppointments('completed')">Completed</button>
+                        <button class="filter-btn" data-filter="cancelled" onclick="filterAppointments('cancelled')">Cancelled</button>
+                    </div>
+                    <div id="appointmentsList" class="cards-grid">
+                        <div class="loading"><div class="spinner"></div></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Notifications Section -->
+            <div id="notificationsSection" class="section-content" style="display: none;">
+                <div class="section">
+                    <div class="section-title">
+                        Notifications
+                        <span class="count" id="notifCount">0</span>
+                    </div>
+                    <div id="notificationsList">
+                        <div class="loading"><div class="spinner"></div></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Profile Section -->
+            <div id="profileSection" class="section-content" style="display: none;">
+                <div class="section">
+                    <div class="section-title">My Profile</div>
+                    <div id="profileContent">
+                        <div class="loading"><div class="spinner"></div></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = (
+            window.location.protocol === "file:" ||
+            window.location.hostname === "localhost" ||
+            window.location.hostname === "127.0.0.1"
+        ) ? "http://127.0.0.1:8000" : "https://ha-healthcare-ai.onrender.com";
+
+        let currentFilter = "all";
+
+        document.addEventListener("DOMContentLoaded", () => {
+            initDoctorDashboard();
+            setupNavigation();
+        });
+
+        function setupNavigation() {
+            document.querySelectorAll(".nav-link").forEach(link => {
+                link.addEventListener("click", (e) => {
+                    if (link.dataset.section) {
+                        e.preventDefault();
+                        navigateTo(link.dataset.section);
+                    }
+                });
+            });
+        }
+
+        function navigateTo(section) {
+            // Update active nav link
+            document.querySelectorAll(".nav-link").forEach(link => {
+                link.classList.remove("active");
+            });
+            document.querySelector(`[data-section="${section}"]`)?.classList.add("active");
+
+            // Hide all sections
+            document.querySelectorAll(".section-content").forEach(sec => {
+                sec.style.display = "none";
+            });
+
+            // Show target section
+            switch(section) {
+                case "dashboard":
+                    document.getElementById("dashboardSection").style.display = "";
+                    loadDashboard();
+                    break;
+                case "appointments":
+                    document.getElementById("appointmentsSection").style.display = "";
+                    filterAppointments("all");
+                    break;
+                case "notifications":
+                    document.getElementById("notificationsSection").style.display = "";
+                    loadNotifications();
+                    break;
+                case "profile":
+                    document.getElementById("profileSection").style.display = "";
+                    loadProfile();
+                    break;
+            }
+        }
+
+        async function initDoctorDashboard() {
+            const token = localStorage.getItem("ha_auth_token");
+            const doctorName = localStorage.getItem("ha_email");
+
+            if (!token) {
+                window.location.href = "index.html";
+                return;
+            }
+
+            document.getElementById("doctorName").textContent = `Welcome, ${doctorName || "Doctor"}`;
+            document.getElementById("doctorEmail").textContent = doctorName || "doctor@hospital.com";
+
+            await loadDashboard();
+        }
+
+        async function loadDashboard() {
+            try {
+                const token = localStorage.getItem("ha_auth_token");
+                const res = await fetch(`${API_BASE}/doctor/dashboard`, {
+                    headers: { "Authorization": `Bearer ${token}` }
+                });
+                const data = await res.json();
+
+                if (res.ok) {
+                    // Load today's appointments
+                    const todayContainer = document.getElementById("todayAppointments");
+                    if (data.today_appointments.length > 0) {
+                        todayContainer.innerHTML = data.today_appointments.map(apt => 
+                            createAppointmentCard(apt)
+                        ).join("");
+                        document.getElementById("todayCount").textContent = data.today_count;
+                    }
+
+                    // Load upcoming appointments
+                    const upcomingContainer = document.getElementById("upcomingAppointments");
+                    if (data.upcoming_appointments.length > 0) {
+                        upcomingContainer.innerHTML = data.upcoming_appointments.map(apt => 
+                            createAppointmentCard(apt)
+                        ).join("");
+                        document.getElementById("upcomingCount").textContent = data.upcoming_appointments.length;
+                    }
+
+                    // Update notification badge
+                    if (data.unread_notifications > 0) {
+                        document.getElementById("notificationBadge").textContent = data.unread_notifications;
+                        document.getElementById("notificationBadge").style.display = "flex";
+                    }
+                }
+            } catch (err) {
+                console.error("Error loading dashboard:", err);
+            }
+        }
+
+        async function filterAppointments(filter) {
+            currentFilter = filter;
+            document.querySelectorAll(".filter-btn").forEach(btn => {
+                btn.classList.remove("active");
+                if (btn.dataset.filter === filter) btn.classList.add("active");
+            });
+
+            try {
+                const token = localStorage.getItem("ha_auth_token");
+                const res = await fetch(`${API_BASE}/doctor/appointments?filter=${filter}`, {
+                    headers: { "Authorization": `Bearer ${token}` }
+                });
+                const data = await res.json();
+
+                const container = document.getElementById("appointmentsList");
+                if (data.appointments.length > 0) {
+                    container.innerHTML = data.appointments.map(apt => 
+                        createAppointmentCard(apt)
+                    ).join("");
+                } else {
+                    container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📭</div><p>No ${filter} appointments</p></div>`;
+                }
+            } catch (err) {
+                console.error("Error filtering appointments:", err);
+            }
+        }
+
+        async function loadNotifications() {
+            try {
+                const token = localStorage.getItem("ha_auth_token");
+                const res = await fetch(`${API_BASE}/doctor/notifications`, {
+                    headers: { "Authorization": `Bearer ${token}` }
+                });
+                const data = await res.json();
+
+                const container = document.getElementById("notificationsList");
+                document.getElementById("notifCount").textContent = data.unread_count;
+
+                if (data.notifications.length > 0) {
+                    container.innerHTML = data.notifications.map((notif, idx) => `
+                        <div class="notification-item ${notif.is_read ? "" : "unread"}" 
+                             onclick="markNotificationRead(${notif.id})">
+                            <div class="notification-title">${notif.title}</div>
+                            <div class="notification-message">${notif.message}</div>
+                            <small style="color: rgba(255,255,255,0.5)">${new Date(notif.created_at).toLocaleString()}</small>
+                        </div>
+                    `).join("");
+                } else {
+                    container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📭</div><p>No notifications</p></div>`;
+                }
+            } catch (err) {
+                console.error("Error loading notifications:", err);
+            }
+        }
+
+        async function markNotificationRead(notificationId) {
+            try {
+                const token = localStorage.getItem("ha_auth_token");
+                await fetch(`${API_BASE}/doctor/notifications/${notificationId}/read`, {
+                    method: "POST",
+                    headers: { "Authorization": `Bearer ${token}` }
+                });
+                await loadNotifications();
+            } catch (err) {
+                console.error("Error marking notification as read:", err);
+            }
+        }
+
+        async function loadProfile() {
+            try {
+                const token = localStorage.getItem("ha_auth_token");
+                const res = await fetch(`${API_BASE}/doctor/profile`, {
+                    headers: { "Authorization": `Bearer ${token}` }
+                });
+                const data = await res.json();
+
+                const container = document.getElementById("profileContent");
+                container.innerHTML = `
+                    <div class="card" style="max-width: 600px;">
+                        <div style="margin-bottom: 20px;">
+                            <label style="color: rgba(255,255,255,0.7)">Name:</label>
+                            <p style="font-size: 18px; color: var(--accent);">${data.doctor_name}</p>
+                        </div>
+                        <div style="margin-bottom: 20px;">
+                            <label style="color: rgba(255,255,255,0.7)">Email:</label>
+                            <p>${data.email}</p>
+                        </div>
+                        <div style="margin-bottom: 20px;">
+                            <label style="color: rgba(255,255,255,0.7)">Specialty:</label>
+                            <p>${data.specialty || "Not specified"}</p>
+                        </div>
+                        <div style="margin-bottom: 20px;">
+                            <label style="color: rgba(255,255,255,0.7)">Location:</label>
+                            <p>${data.location || "Not specified"}</p>
+                        </div>
+                        <div style="margin-bottom: 20px;">
+                            <label style="color: rgba(255,255,255,0.7)">Hospital:</label>
+                            <p>${data.hospital || "Not specified"}</p>
+                        </div>
+                        <div style="margin-bottom: 20px;">
+                            <label style="color: rgba(255,255,255,0.7)">Fee:</label>
+                            <p>₹${data.fee}</p>
+                        </div>
+                    </div>
+                `;
+            } catch (err) {
+                console.error("Error loading profile:", err);
+            }
+        }
+
+        function createAppointmentCard(apt) {
+            const statusClass = `status-${apt.status || "pending"}`;
+            return `
+                <div class="card appointment-card">
+                    <div class="appointment-header">
+                        <div class="patient-name">${apt.patient_name}</div>
+                        <div class="appointment-time">${apt.appointment_time}</div>
+                    </div>
+                    <div class="appointment-details">
+                        <strong>Phone:</strong> ${apt.patient_phone}
+                    </div>
+                    <div class="appointment-details">
+                        <strong>Date:</strong> ${apt.appointment_date}
+                    </div>
+                    <div class="appointment-details">
+                        <strong>Reason:</strong> ${apt.symptoms || "Not specified"}
+                    </div>
+                    <span class="status-badge ${statusClass}">${apt.status || "pending"}</span>
+                </div>
+            `;
+        }
+
+        function logoutDoctor() {
+            localStorage.clear();
+            window.location.href = "index.html";
+        }
+    </script>
+</body>
+</html>

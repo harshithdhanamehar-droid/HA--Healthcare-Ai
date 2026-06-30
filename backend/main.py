@@ -70,12 +70,14 @@ def init_database():
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id              TEXT PRIMARY KEY,
-                name            TEXT NOT NULL,
+                name            TEXT,
                 email           TEXT UNIQUE,
                 phone           TEXT UNIQUE,
                 location        TEXT,
                 auth_provider   TEXT DEFAULT 'local',
                 google_sub      TEXT UNIQUE,
+                password_hash   TEXT,
+                is_verified     BOOLEAN DEFAULT 0,
                 created_at      TEXT NOT NULL,
                 updated_at      TEXT NOT NULL
             )
@@ -214,6 +216,19 @@ def init_database():
             )
         """)
 
+        # Doctor Notifications
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS doctor_notifications (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                doctor_id        TEXT NOT NULL,
+                title            TEXT NOT NULL,
+                message          TEXT NOT NULL,
+                is_read          BOOLEAN DEFAULT 0,
+                created_at       TEXT NOT NULL,
+                FOREIGN KEY (doctor_id) REFERENCES doctor_accounts(doctor_id)
+            )
+        """)
+
         # Indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_chat_phone   ON chat_history(user_phone)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_chat_id      ON chat_history(chat_id)")
@@ -230,6 +245,8 @@ def init_database():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_updated ON chat_sessions(updated_at)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_email_logs_recipient ON email_logs(recipient)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_email_logs_type ON email_logs(email_type)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_doctor_notifications_doctor_id ON doctor_notifications(doctor_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_doctor_notifications_is_read ON doctor_notifications(is_read)")
 
         conn.commit()
         conn.close()
@@ -238,7 +255,42 @@ def init_database():
         logger.error("Database initialisation failed: %s", e)
         raise
 
+def run_migrations():
+    """Add any missing columns to existing tables (safe, idempotent)."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        def has_col(table, col):
+            cursor.execute(f"PRAGMA table_info({table})")
+            return any(r[1] == col for r in cursor.fetchall())
+
+        schema_changes = [
+            ("users", "email",         "ALTER TABLE users ADD COLUMN email TEXT"),
+            ("users", "password_hash", "ALTER TABLE users ADD COLUMN password_hash TEXT"),
+            ("users", "auth_provider", "ALTER TABLE users ADD COLUMN auth_provider TEXT DEFAULT 'local'"),
+            ("users", "google_sub",    "ALTER TABLE users ADD COLUMN google_sub TEXT"),
+            ("users", "is_verified",   "ALTER TABLE users ADD COLUMN is_verified INTEGER DEFAULT 0"),
+            ("users", "updated_at",    "ALTER TABLE users ADD COLUMN updated_at TEXT"),
+        ]
+        for table, col, sql in schema_changes:
+            if not has_col(table, col):
+                cursor.execute(sql)
+                logger.info("Migration: added %s.%s", table, col)
+
+        # Backfill updated_at
+        cursor.execute("UPDATE users SET updated_at = created_at WHERE updated_at IS NULL")
+        # Indexes (safe if exists)
+        cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE email IS NOT NULL")
+
+        conn.commit()
+        conn.close()
+        logger.info("DB migrations complete.")
+    except Exception as e:
+        logger.error("Migration failed: %s", e)
+
 init_database()
+run_migrations()
 
 def migrate_doctors_to_database():
     """Migrate hardcoded DOCTORS list to SQLite database (one-time operation)."""
@@ -293,6 +345,11 @@ def migrate_doctors_to_database():
 
 # Each doctor has a photo_url field.
 # Set photo_url to a real image URL or "" to use the generated avatar fallback.
+# NOTE: This DOCTORS list is DEPRECATED and only used for:
+#   1. Initial database migration (one-time operation on first run)
+#   2. Backwards compatibility fallback during transition
+# All new doctors should be added via the admin interface or Excel upload.
+# The database (doctors and doctor_accounts tables) is now the source of truth.
 DOCTORS = [
     {
         "id": "d001",
@@ -421,6 +478,7 @@ class ChatRequest(BaseModel):
     message: str
     username: Optional[str] = "Patient"
     user_phone: Optional[str] = None
+    user_id: Optional[str] = None
     chat_id: Optional[str] = None
 
 class SymptomRequest(BaseModel):
@@ -529,22 +587,44 @@ def send_email(to_email: str, subject: str, html_body: str, email_type: str = "g
         # Build message
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
-        msg["From"] = gmail_user
+        msg["From"] = f"HA! Healthcare AI <{gmail_user}>"
         msg["To"] = to_email
         
         # Add HTML body
         part = MIMEText(html_body, "html")
         msg.attach(part)
         
-        # Send via Gmail SMTP
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
-            server.login(gmail_user, gmail_pass)
-            server.sendmail(gmail_user, to_email, msg.as_string())
-        
-        logger.info(f"Email sent to {to_email}: {subject}")
-        log_email(to_email, email_type, subject, "sent")
-        return True
-        
+        # Build message with display name
+        msg["From"] = f"HA! Healthcare AI <{gmail_user}>"
+
+        # Try port 465 SSL first, then fall back to port 587 STARTTLS
+        sent = False
+        last_error = None
+        try:
+            with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
+                server.login(gmail_user, gmail_pass)
+                server.sendmail(gmail_user, to_email, msg.as_string())
+            sent = True
+        except Exception as e465:
+            last_error = e465
+            logger.warning(f"Port 465 failed ({e465}), trying port 587 STARTTLS...")
+            try:
+                with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
+                    server.ehlo()
+                    server.starttls()
+                    server.login(gmail_user, gmail_pass)
+                    server.sendmail(gmail_user, to_email, msg.as_string())
+                sent = True
+            except Exception as e587:
+                last_error = e587
+
+        if sent:
+            logger.info(f"Email sent to {to_email}: {subject}")
+            log_email(to_email, email_type, subject, "sent")
+            return True
+        else:
+            raise last_error
+
     except Exception as e:
         error_msg = str(e)
         logger.error(f"Email send failed to {to_email}: {error_msg}")
@@ -603,6 +683,54 @@ def send_appointment_cancellation(appointment: dict):
     """
     
     send_email(appointment.get("patient_email", ""), subject, html, "appointment_cancellation")
+
+def send_appointment_cancellation_email(patient_name: str, patient_email: str, doctor_name: str, apt_date: str, apt_time: str):
+    """Send cancellation email to patient (simplified version for backend)."""
+    subject = "Appointment Cancelled - HA! Healthcare AI"
+    
+    html = f"""
+    <html>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <h2 style="color: #ef4444;">Appointment Cancelled</h2>
+        <p>Dear {patient_name},</p>
+        <p>Your appointment with Dr. {doctor_name} scheduled for <strong>{apt_date}</strong> at <strong>{apt_time}</strong> has been cancelled.</p>
+        
+        <div style="background: #fff3cd; padding: 16px; border-radius: 8px; margin: 20px 0;">
+            <p>If this was unexpected, please book another slot through the HA! app.</p>
+        </div>
+        
+        <p>Regards,<br>HA! Healthcare AI Team</p>
+    </body>
+    </html>
+    """
+    
+    sent = send_email(patient_email, subject, html, "appointment_cancellation_patient")
+    if sent:
+        logger.info("Cancellation email sent to patient: %s", patient_email)
+    else:
+        logger.warning("Failed to send cancellation email to patient: %s", patient_email)
+
+def send_doctor_cancellation_email(doctor_name: str, doctor_email: str, patient_name: str, apt_date: str, apt_time: str):
+    """Send cancellation notification to doctor."""
+    subject = "Appointment Cancelled"
+    
+    html = f"""
+    <html>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <h2 style="color: #ef4444;">Appointment Cancelled</h2>
+        <p>Dear Dr. {doctor_name},</p>
+        <p>An appointment with patient <strong>{patient_name}</strong> scheduled for <strong>{apt_date}</strong> at <strong>{apt_time}</strong> has been cancelled.</p>
+        
+        <p>Best regards,<br>HA! Healthcare AI Team</p>
+    </body>
+    </html>
+    """
+    
+    sent = send_email(doctor_email, subject, html, "appointment_cancellation_doctor")
+    if sent:
+        logger.info("Cancellation email sent to doctor: %s", doctor_email)
+    else:
+        logger.warning("Failed to send cancellation email to doctor: %s", doctor_email)
 
 def send_otp_email_message(email: str, otp_code: str, purpose: str = "email_verification"):
     """Send OTP via email."""
@@ -666,6 +794,16 @@ class UserLoginOTPRequest(BaseModel):
 class UserRequestOTPRequest(BaseModel):
     email: str
     purpose: str  # "verification" or "forgot_password"
+
+class UserPasswordLoginRequest(BaseModel):
+    email: str
+    password: str
+
+class UserProfileSetupRequest(BaseModel):
+    user_id: str
+    name: str
+    phone: str
+    location: str
 
 class DoctorLoginRequest(BaseModel):
     email: str
@@ -913,8 +1051,22 @@ async def chat(data: ChatRequest):
     )
     reply = call_ai(data.message, system_prompt)
     
-    # Save chat history to database if user_phone and chat_id are provided
-    if data.user_phone and data.chat_id:
+    # Save chat history to database if user_phone or user_id and chat_id are provided
+    # If phone is missing but user_id is set, look up phone from users table
+    effective_phone = data.user_phone
+    if not effective_phone and data.user_id:
+        try:
+            conn_lookup = sqlite3.connect(DB_PATH)
+            cur_lookup = conn_lookup.cursor()
+            cur_lookup.execute("SELECT phone, email FROM users WHERE id = ?", (data.user_id,))
+            row_lookup = cur_lookup.fetchone()
+            conn_lookup.close()
+            if row_lookup:
+                effective_phone = row_lookup[0] or row_lookup[1]  # phone first, then email as fallback
+        except Exception:
+            pass
+
+    if effective_phone and data.chat_id:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         timestamp = datetime.now().isoformat()
@@ -923,19 +1075,19 @@ async def chat(data: ChatRequest):
         cursor.execute("""
             INSERT OR IGNORE INTO chat_sessions (chat_id, user_phone, title, preview, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?)
-        """, (data.chat_id, data.user_phone, data.message[:60], data.message[:80], timestamp, timestamp))
+        """, (data.chat_id, effective_phone, data.message[:60], data.message[:80], timestamp, timestamp))
         
         # Save user message
         cursor.execute("""
             INSERT INTO chat_history (user_phone, chat_id, role, message, created_at)
             VALUES (?, ?, ?, ?, ?)
-        """, (data.user_phone, data.chat_id, "user", data.message, timestamp))
+        """, (effective_phone, data.chat_id, "user", data.message, timestamp))
         
         # Save AI response
         cursor.execute("""
             INSERT INTO chat_history (user_phone, chat_id, role, message, created_at)
             VALUES (?, ?, ?, ?, ?)
-        """, (data.user_phone, data.chat_id, "assistant", reply, timestamp))
+        """, (effective_phone, data.chat_id, "assistant", reply, timestamp))
         
         # Update session's updated_at timestamp
         cursor.execute("""
@@ -1170,11 +1322,21 @@ def book_appointment(data: AppointmentRequest):
         ))
         conn.commit()
         
+        # Look up patient email from users table
+        patient_email = ""
+        try:
+            cursor.execute("SELECT email FROM users WHERE phone = ?", (data.patient_phone.strip(),))
+            email_row = cursor.fetchone()
+            if email_row and email_row[0]:
+                patient_email = email_row[0]
+        except Exception:
+            pass
+
         appointment_data = {
             "appointment_id": appointment_id,
             "patient_name": data.patient_name,
             "patient_phone": data.patient_phone,
-            "patient_email": "",  # Could be fetched from users table if needed
+            "patient_email": patient_email,
             "doctor_name": doctor.get("doctor_name") or doctor.get("name", "Doctor"),
             "specialty": doctor.get("specialty", "General"),
             "hospital": doctor.get("hospital", "HA! Medical Center"),
@@ -1188,6 +1350,15 @@ def book_appointment(data: AppointmentRequest):
         send_appointment_confirmation(appointment_data)
         if doctor_email:
             send_doctor_notification(doctor_email, appointment_data)
+        
+        # Create notification for doctor (non-blocking)
+        doctor_id = doctor.get("id") or data.doctor_id
+        create_doctor_notification(
+            DB_PATH,
+            doctor_id,
+            f"New appointment booked: {data.patient_name}",
+            f"Appointment on {data.date} at {data.time_slot} with {data.patient_name}"
+        )
         
         logger.info("Appointment created: %s for %s with %s on %s %s",
                     appointment_id, data.patient_name, appointment_data["doctor_name"], data.date, data.time_slot)
@@ -1276,15 +1447,40 @@ def cancel_appointment(appointment_id: str):
     try:
         conn = get_conn()
         cursor = conn.cursor()
+        
+        # Get appointment details before cancelling (for email)
+        cursor.execute("""
+            SELECT id, patient_name, patient_email, doctor_name, doctor_email, appointment_date, appointment_time
+            FROM appointments WHERE appointment_id=?
+        """, (appointment_id,))
+        apt_row = cursor.fetchone()
+        
+        if not apt_row:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Appointment not found")
+        
+        apt_id, patient_name, patient_email, doctor_name, doctor_email, apt_date, apt_time = apt_row
+        
+        # Cancel appointment
         cursor.execute(
             "UPDATE appointments SET status='cancelled', updated_at=? WHERE appointment_id=?",
             (now, appointment_id)
         )
-        if cursor.rowcount == 0:
-            conn.close()
-            raise HTTPException(status_code=404, detail="Appointment not found")
         conn.commit()
         conn.close()
+        
+        # Send cancellation emails (background — don't fail the API if email fails)
+        try:
+            send_appointment_cancellation_email(patient_name, patient_email, doctor_name, apt_date, apt_time)
+        except Exception as e:
+            logger.warning("Failed to send patient cancellation email: %s", str(e))
+        
+        try:
+            if doctor_email:
+                send_doctor_cancellation_email(doctor_name, doctor_email, patient_name, apt_date, apt_time)
+        except Exception as e:
+            logger.warning("Failed to send doctor cancellation email: %s", str(e))
+        
         logger.info("Appointment %s cancelled", appointment_id)
         return {"success": True, "message": "Appointment cancelled successfully"}
     except HTTPException:
@@ -1519,19 +1715,22 @@ def get_all_users():
     cursor = conn.cursor()
     
     cursor.execute("""
-        SELECT id, name, phone, location, created_at
+        SELECT id, name, email, phone, location, auth_provider, is_verified, created_at
         FROM users
         ORDER BY created_at DESC
     """)
     
     users = []
     for row in cursor.fetchall():
-        user_id, name, phone, location, created_at = row
+        user_id, name, email, phone, location, auth_provider, is_verified, created_at = row
         users.append({
             "id": user_id,
-            "name": name,
-            "phone": phone,
-            "location": location,
+            "name": name or "—",
+            "email": email or "—",
+            "phone": phone or "—",
+            "location": location or "—",
+            "auth_provider": auth_provider or "local",
+            "is_verified": bool(is_verified),
             "created_at": created_at
         })
     
@@ -1817,132 +2016,383 @@ def toggle_doctor_active_status(doctor_id: str, data: dict):
 
 # ─── USER AUTHENTICATION ──────────────────────────────────────────────────────
 
+@app.get("/auth/google/status")
+def google_status():
+    """Check if Google OAuth is configured."""
+    client_id = os.getenv("GOOGLE_CLIENT_ID", "")
+    is_configured = bool(client_id and client_id != "placeholder-google-client-id-replace-me")
+    return {"configured": is_configured, "client_id": client_id if is_configured else ""}
+
 @app.post("/auth/user/google")
 def user_login_google(data: UserLoginGoogleRequest):
     """
-    Google OAuth login for users.
-    Takes a Google token, creates/links user account.
+    Google Sign-In via ID token (from Google Identity Services JS library).
+    Frontend sends credential (id_token) after user clicks the Google button.
+    Backend verifies with google-auth, creates/updates user, returns JWT.
     """
-    # Verify Google token
-    google_info = verify_google_token(data.token)
-    if not google_info:
-        raise HTTPException(status_code=401, detail="Invalid Google token")
-    
-    google_sub = google_info.get("google_sub")
-    email = google_info.get("email")
-    name = data.name or google_info.get("name", "User")
-    
+    from google.oauth2 import id_token as google_id_token
+    from google.auth.transport import requests as google_requests
+
+    g_client_id = os.getenv("GOOGLE_CLIENT_ID", "")
+    if not g_client_id or g_client_id == "placeholder-google-client-id-replace-me":
+        raise HTTPException(status_code=501, detail="Google OAuth not configured. Set GOOGLE_CLIENT_ID in .env")
+
+    # Verify the ID token issued by Google
     try:
-        # Check if user already linked to Google
-        user_id = get_user_by_google_sub(DB_PATH, google_sub)
-        
-        if not user_id:
-            # Create new user
-            user_id = str(uuid.uuid4())[:8]
-            conn = get_conn()
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO users (id, name, phone, location, created_at)
-                VALUES (?, ?, ?, ?, ?)
-            """, (user_id, name, f"google_{google_sub}", "", datetime.now().isoformat()))
-            conn.commit()
-            conn.close()
-            
-            # Link Google account
-            link_google_auth(DB_PATH, google_sub, user_id, email)
-        
-        # Create JWT token
+        idinfo = google_id_token.verify_oauth2_token(
+            data.token,
+            google_requests.Request(),
+            g_client_id,
+            clock_skew_in_seconds=10,
+        )
+    except Exception as exc:
+        logger.warning("Google id_token verify failed: %s", exc)
+        raise HTTPException(status_code=401, detail="Invalid Google token")
+
+    google_sub = idinfo.get("sub")
+    email      = idinfo.get("email", "")
+    name       = data.name or idinfo.get("name", email.split("@")[0])
+    picture    = idinfo.get("picture", "")
+
+    if not google_sub or not email:
+        raise HTTPException(status_code=401, detail="Google token missing sub/email")
+
+    now = datetime.now().isoformat()
+
+    try:
+        conn = get_conn()
+        cursor = conn.cursor()
+
+        # Check existing link
+        cursor.execute("SELECT user_id FROM google_auth WHERE google_sub=?", (google_sub,))
+        row = cursor.fetchone()
+
+        is_new = False
+        if row:
+            user_id = row[0]
+            cursor.execute("SELECT name, phone, location FROM users WHERE id=?", (user_id,))
+            urow     = cursor.fetchone()
+            uname    = urow[0] if urow else ""
+            uphone   = urow[1] if urow else ""
+            uloc     = urow[2] if urow else ""
+        else:
+            # Check if email already registered (e.g. via OTP)
+            cursor.execute("SELECT id, name, phone, location FROM users WHERE email=?", (email,))
+            existing = cursor.fetchone()
+            if existing:
+                user_id = existing[0]
+                uname   = existing[1] or ""
+                uphone  = existing[2] or ""
+                uloc    = existing[3] or ""
+                # Link google sub
+                cursor.execute("""
+                    INSERT OR IGNORE INTO google_auth (google_sub, user_id, email, created_at)
+                    VALUES (?,?,?,?)
+                """, (google_sub, user_id, email, now))
+                cursor.execute("UPDATE users SET google_sub=?, auth_provider='google', updated_at=? WHERE id=?",
+                               (google_sub, now, user_id))
+            else:
+                user_id  = str(uuid.uuid4())[:8]
+                uname    = name
+                uphone   = ""
+                uloc     = ""
+                is_new   = True
+                cursor.execute("""
+                    INSERT INTO users (id, name, email, phone, location, auth_provider, google_sub, is_verified, created_at, updated_at)
+                    VALUES (?,?,?,?,?,?,?,1,?,?)
+                """, (user_id, name, email, None, "", "google", google_sub, now, now))
+                cursor.execute("""
+                    INSERT OR IGNORE INTO google_auth (google_sub, user_id, email, created_at)
+                    VALUES (?,?,?,?)
+                """, (google_sub, user_id, email, now))
+
+        conn.commit()
+        conn.close()
+
+        needs_profile = not uphone or not uloc
+
         access_token = create_access_token(user_id, "user")
         store_token(DB_PATH, access_token, user_id, "user")
-        
-        logger.info("User logged in via Google: %s", user_id)
-        return TokenResponse(
-            token=access_token,
-            user_id=user_id,
-            role="user",
-            expires_in=int(os.getenv("JWT_EXPIRE_MINUTES", 1440)) * 60
-        )
+
+        logger.info("Google login: user=%s new=%s", user_id, is_new)
+        return {
+            "token":         access_token,
+            "user_id":       user_id,
+            "role":          "user",
+            "expires_in":    int(os.getenv("JWT_EXPIRE_MINUTES", 1440)) * 60,
+            "email":         email,
+            "name":          uname or name,
+            "phone":         uphone,
+            "location":      uloc,
+            "picture":       picture,
+            "is_new_user":   is_new,
+            "needs_profile": needs_profile,
+        }
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error("Google login error: %s", e)
+        logger.error("Google login DB error: %s", e)
         raise HTTPException(status_code=500, detail="Authentication failed")
 
 @app.post("/auth/user/otp/request")
 def user_request_otp(data: UserRequestOTPRequest):
     """
-    Request OTP for user email verification or password reset.
+    Request OTP for user email verification or login.
+    Sends OTP via Gmail SMTP. Works for both new and existing users.
     """
     if not data.email or "@" not in data.email:
         raise HTTPException(status_code=422, detail="Valid email required")
     
-    if data.purpose not in ("verification", "forgot_password"):
+    if data.purpose not in ("verification", "forgot_password", "login"):
         raise HTTPException(status_code=422, detail="Invalid purpose")
     
     # Generate OTP
     otp_code = generate_otp()
     
-    # Store OTP
+    # Store OTP in database
     if not store_otp(DB_PATH, data.email, otp_code, data.purpose):
         raise HTTPException(status_code=500, detail="Failed to store OTP")
     
-    # Send OTP email
-    if not send_otp_email(data.email, otp_code, data.purpose):
+    # Send OTP via Gmail SMTP (uses main.py send_email for consistent logging)
+    sent = send_otp_email_message(data.email, otp_code, data.purpose)
+    
+    if not sent:
+        # SMTP not configured — return OTP in dev mode only
+        env = os.getenv("ENVIRONMENT", "production")
+        if env == "development":
+            logger.warning("SMTP not configured, returning OTP in response (dev mode): %s", otp_code)
+            return {
+                "success": True,
+                "message": f"[DEV MODE] OTP: {otp_code}",
+                "email": data.email,
+                "dev_otp": otp_code,
+            }
         logger.warning("OTP email failed but OTP was stored: %s", data.email)
         return {
             "success": False,
-            "message": "OTP generated but email delivery failed. Contact support.",
+            "message": "Email delivery failed. Configure GMAIL_USER and GMAIL_APP_PASSWORD in .env",
             "email": data.email,
         }
     
     logger.info("OTP requested for %s (%s)", data.email, data.purpose)
     return {
         "success": True,
-        "message": f"OTP sent to {data.email}",
+        "message": f"OTP sent to {data.email}. Check your inbox.",
         "email": data.email,
     }
 
 @app.post("/auth/user/otp/verify")
 def user_verify_otp(data: UserLoginOTPRequest):
     """
-    Verify OTP and create user account or reset password.
+    Verify OTP. Creates or retrieves user account.
+    Returns token + needs_profile flag so frontend shows profile setup if needed.
     """
-    if not verify_otp(DB_PATH, data.email, data.otp_code, "verification"):
-        raise HTTPException(status_code=401, detail="Invalid or expired OTP")
-    
+    # Accept any of these purposes
+    logger.info("OTP verify request: email=%s otp=%s", data.email, data.otp_code)
+    verified = False
+    matched_purpose = None
+    for purpose in ("login", "verification", "forgot_password"):
+        if verify_otp(DB_PATH, data.email, data.otp_code, purpose):
+            verified = True
+            matched_purpose = purpose
+            logger.info("OTP verified with purpose=%s", purpose)
+            break
+
+    if not verified:
+        logger.warning("OTP verification failed for email=%s", data.email)
+        raise HTTPException(status_code=401, detail="Invalid or expired OTP. Please request a new one.")
+
+    logger.info("Step 1: OTP verified successfully for email=%s", data.email)
+
+    # Delete used OTP so it cannot be reused
+    try:
+        c = sqlite3.connect(DB_PATH)
+        c.execute(
+            "DELETE FROM otp_store WHERE email = ? AND otp_code = ?",
+            (data.email, data.otp_code)
+        )
+        c.commit()
+        c.close()
+        logger.info("Step 2: OTP deleted from database")
+    except Exception as e:
+        logger.error("Failed to delete OTP: %s", e)
+        pass
+
     try:
         conn = get_conn()
         cursor = conn.cursor()
-        
-        # Check if user exists
-        cursor.execute("SELECT id FROM users WHERE phone = ?", (data.email,))
-        result = cursor.fetchone()
-        
-        if result:
-            user_id = result[0]
+
+        # Check if user already exists by email
+        logger.info("Step 3a: Checking if user exists for email=%s", data.email)
+        cursor.execute("SELECT id, name, phone, location FROM users WHERE email = ?", (data.email,))
+        existing = cursor.fetchone()
+
+        is_new_user = False
+        now = datetime.now().isoformat()
+
+        if existing:
+            user_id  = existing[0]
+            name     = existing[1] or ""
+            phone    = existing[2] or ""
+            location = existing[3] or ""
+            logger.info("Step 3b: User exists - id=%s", user_id)
+            # Mark verified
+            cursor.execute("UPDATE users SET is_verified=1, updated_at=? WHERE id=?", (now, user_id))
+            # needs_profile if any required field is empty or is the auto-generated placeholder
+            needs_profile = not name or phone.startswith("user_") or not location
         else:
-            # Create new user
-            user_id = str(uuid.uuid4())[:8]
+            user_id   = str(uuid.uuid4())[:8]
+            name      = ""
+            phone     = f"user_{user_id}"  # Unique placeholder phone for new users
+            location  = ""
+            logger.info("Step 3c: Creating new user - id=%s", user_id)
             cursor.execute("""
-                INSERT INTO users (id, name, phone, location, created_at)
-                VALUES (?, ?, ?, ?, ?)
-            """, (user_id, data.email.split("@")[0], data.email, "", datetime.now().isoformat()))
-        
+                INSERT INTO users (id, name, email, phone, location, auth_provider, is_verified, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+            """, (user_id, "", data.email, phone, "", "local", now, now))
+            is_new_user   = True
+            needs_profile = True
+
+        logger.info("Step 3d: Committing database changes")
         conn.commit()
         conn.close()
-        
-        # Create JWT token
+        logger.info("Step 3e: Database committed - user_id=%s", user_id)
+
+        logger.info("Step 4: Creating JWT token for user_id=%s", user_id)
         access_token = create_access_token(user_id, "user")
+        logger.info("Step 4a: Token created: %s", access_token[:50])
+
+        logger.info("Step 4b: Storing token in database")
         store_token(DB_PATH, access_token, user_id, "user")
-        
-        logger.info("User verified OTP: %s", user_id)
-        return TokenResponse(
-            token=access_token,
-            user_id=user_id,
-            role="user",
-            expires_in=int(os.getenv("JWT_EXPIRE_MINUTES", 1440)) * 60
-        )
+        logger.info("Step 4c: Token stored")
+
+        logger.info("Step 5: Preparing response")
+        response = {
+            "token":        access_token,
+            "user_id":      user_id,
+            "role":         "user",
+            "expires_in":   int(os.getenv("JWT_EXPIRE_MINUTES", 1440)) * 60,
+            "email":        data.email,
+            "name":         name,
+            "phone":        phone,
+            "location":     location,
+            "is_new_user":  is_new_user,
+            "needs_profile": needs_profile,
+        }
+        logger.info("Step 5a: Response ready - returning")
+        logger.info("User OTP verified: %s (new=%s)", user_id, is_new_user)
+        return response
     except Exception as e:
-        logger.error("OTP verification error: %s", e)
-        raise HTTPException(status_code=500, detail="Verification failed")
+        import traceback
+        traceback.print_exc()
+        logger.exception("OTP verification error")
+        logger.error("OTP verify failed: email=%s otp_code=%s error=%s", data.email, data.otp_code, str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/auth/user/otp/resend")
+def user_resend_otp(data: UserRequestOTPRequest):
+    """Resend a fresh OTP, invalidating the old one."""
+    if not data.email or "@" not in data.email:
+        raise HTTPException(status_code=422, detail="Valid email required")
+    # Delete any existing OTPs for this email+purpose
+    try:
+        c = sqlite3.connect(DB_PATH)
+        c.execute("DELETE FROM otp_store WHERE email = ? AND purpose = ?", (data.email, data.purpose))
+        c.commit()
+        c.close()
+    except Exception:
+        pass
+    # Generate and send new OTP
+    otp_code = generate_otp()
+    if not store_otp(DB_PATH, data.email, otp_code, data.purpose):
+        raise HTTPException(status_code=500, detail="Failed to store OTP")
+    sent = send_otp_email_message(data.email, otp_code, data.purpose)
+    env  = os.getenv("ENVIRONMENT", "production")
+    if not sent:
+        if env == "development":
+            return {"success": True, "message": f"[DEV] OTP: {otp_code}", "dev_otp": otp_code}
+        return {"success": False, "message": "Email delivery failed. Check SMTP configuration."}
+    return {"success": True, "message": f"New OTP sent to {data.email}"}
+
+@app.post("/auth/user/login")
+def user_login_password(data: UserPasswordLoginRequest):
+    """
+    Login with email + password.
+    Returns token + profile info. Returns needs_profile if data incomplete.
+    """
+    if not data.email or "@" not in data.email:
+        raise HTTPException(status_code=422, detail="Valid email required")
+    if not data.password:
+        raise HTTPException(status_code=422, detail="Password required")
+    
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name, phone, location, password_hash FROM users WHERE email = ?", (data.email,))
+    row = cursor.fetchone()
+    conn.close()
+    
+    if not row:
+        raise HTTPException(status_code=401, detail="No account found with this email. Please register.")
+    
+    user_id, name, phone, location, pw_hash = row
+    
+    if not pw_hash:
+        raise HTTPException(status_code=401, detail="This account uses OTP login. Use the OTP option instead.")
+    
+    if not verify_password(data.password, pw_hash):
+        raise HTTPException(status_code=401, detail="Incorrect password.")
+    
+    needs_profile = not name or not phone or not location
+    
+    access_token = create_access_token(user_id, "user")
+    store_token(DB_PATH, access_token, user_id, "user")
+    
+    logger.info("User password login: %s", user_id)
+    return {
+        "token": access_token,
+        "user_id": user_id,
+        "role": "user",
+        "expires_in": int(os.getenv("JWT_EXPIRE_MINUTES", 1440)) * 60,
+        "email": data.email,
+        "name": name or "",
+        "phone": phone or "",
+        "location": location or "",
+        "needs_profile": needs_profile,
+    }
+
+@app.post("/auth/user/profile-setup")
+def user_profile_setup(data: UserProfileSetupRequest):
+    """
+    Called after first login to save name, phone, and location.
+    """
+    if not data.name.strip():
+        raise HTTPException(status_code=422, detail="Name is required")
+    if not data.phone.strip():
+        raise HTTPException(status_code=422, detail="Phone is required")
+    
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM users WHERE id = ?", (data.user_id,))
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    now = datetime.now().isoformat()
+    cursor.execute("""
+        UPDATE users SET name = ?, phone = ?, location = ?, updated_at = ? WHERE id = ?
+    """, (data.name.strip(), data.phone.strip(), data.location.strip(), now, data.user_id))
+    conn.commit()
+    conn.close()
+    
+    logger.info("Profile setup completed for user %s", data.user_id)
+    return {
+        "success": True,
+        "user_id": data.user_id,
+        "name": data.name.strip(),
+        "phone": data.phone.strip(),
+        "location": data.location.strip(),
+        "message": "Profile saved successfully"
+    }
 
 # ─── DOCTOR AUTHENTICATION ────────────────────────────────────────────────────
 
@@ -2298,6 +2748,538 @@ def admin_delete_doctor_account(doctor_id: str):
             "UPDATE doctor_accounts SET is_active = 0, updated_at = ? WHERE doctor_id = ?",
             (datetime.now().isoformat(), doctor_id)
         )
+        conn.commit()
+        conn.close()
+        
+        logger.info("Admin deactivated doctor account: %s", doctor_id)
+        return {
+            "success": True,
+            "message": "Doctor account deactivated successfully",
+            "doctor_id": doctor_id,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error deleting doctor account: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to delete account")
+
+# ═══════════════════════════════════════════════════════════════
+# DOCTOR DASHBOARD APIS (PARTS 3 & 7)
+# ═══════════════════════════════════════════════════════════════
+
+@app.get("/doctor/dashboard")
+def doctor_get_dashboard(authorization: str = Header(None)):
+    """Get doctor dashboard with appointments and notifications summary."""
+    try:
+        if not authorization:
+            raise HTTPException(status_code=401, detail="Authorization header required")
+        
+        # Extract and verify token
+        token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
+        token_payload = verify_token(token)
+        if not token_payload or token_payload.role != "doctor":
+            raise HTTPException(status_code=401, detail="Invalid token")
+        
+        doctor_id = token_payload.sub
+        conn = get_conn()
+        cursor = conn.cursor()
+        
+        # Get doctor info
+        cursor.execute("SELECT doctor_name, email FROM doctor_accounts WHERE doctor_id = ?", (doctor_id,))
+        doc_info = cursor.fetchone()
+        if not doc_info:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Doctor not found")
+        
+        # Get today's appointments
+        today = datetime.now().strftime("%Y-%m-%d")
+        cursor.execute("""
+            SELECT appointment_id, patient_name, patient_phone, appointment_time, 
+                   symptoms, status FROM appointments
+            WHERE doctor_id = ? AND appointment_date = ? AND status != 'cancelled'
+            ORDER BY appointment_time ASC
+        """, (doctor_id, today))
+        today_apts = [dict(row) for row in cursor.fetchall()]
+        
+        # Get upcoming appointments (next 7 days)
+        cursor.execute("""
+            SELECT appointment_id, patient_name, patient_phone, appointment_date, appointment_time, 
+                   symptoms, status FROM appointments
+            WHERE doctor_id = ? AND appointment_date > ? AND appointment_date <= ? AND status != 'cancelled'
+            ORDER BY appointment_date ASC, appointment_time ASC LIMIT 20
+        """, (doctor_id, today, (datetime.now() + __import__('datetime').timedelta(days=7)).strftime("%Y-%m-%d")))
+        upcoming_apts = [dict(row) for row in cursor.fetchall()]
+        
+        # Get unread notifications count
+        cursor.execute("""
+            SELECT COUNT(*) as count FROM doctor_notifications
+            WHERE doctor_id = ? AND is_read = 0
+        """, (doctor_id,))
+        unread_count = cursor.fetchone()["count"]
+        
+        conn.close()
+        
+        return {
+            "doctor_id": doctor_id,
+            "doctor_name": doc_info[0],
+            "email": doc_info[1],
+            "today_appointments": today_apts,
+            "upcoming_appointments": upcoming_apts,
+            "today_count": len(today_apts),
+            "unread_notifications": unread_count,
+            "timestamp": datetime.now().isoformat(),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error getting doctor dashboard: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/doctor/appointments")
+def doctor_get_appointments(filter: str = "all", authorization: str = Header(None)):
+    """Get doctor's appointments filtered by status (today, upcoming, completed, cancelled)."""
+    try:
+        if not authorization:
+            raise HTTPException(status_code=401, detail="Authorization header required")
+        
+        token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
+        token_payload = verify_token(token)
+        if not token_payload or token_payload.role != "doctor":
+            raise HTTPException(status_code=401, detail="Invalid token")
+        
+        doctor_id = token_payload.sub
+        conn = get_conn()
+        cursor = conn.cursor()
+        
+        today = datetime.now().strftime("%Y-%m-%d")
+        
+        if filter == "today":
+            cursor.execute("""
+                SELECT * FROM appointments
+                WHERE doctor_id = ? AND appointment_date = ? AND status != 'cancelled'
+                ORDER BY appointment_time ASC
+            """, (doctor_id, today))
+        elif filter == "upcoming":
+            cursor.execute("""
+                SELECT * FROM appointments
+                WHERE doctor_id = ? AND appointment_date > ? AND appointment_date <= ? AND status != 'cancelled'
+                ORDER BY appointment_date ASC, appointment_time ASC
+            """, (doctor_id, today, (datetime.now() + __import__('datetime').timedelta(days=7)).strftime("%Y-%m-%d")))
+        elif filter == "completed":
+            cursor.execute("""
+                SELECT * FROM appointments
+                WHERE doctor_id = ? AND status = 'completed'
+                ORDER BY appointment_date DESC
+            """, (doctor_id,))
+        elif filter == "cancelled":
+            cursor.execute("""
+                SELECT * FROM appointments
+                WHERE doctor_id = ? AND status = 'cancelled'
+                ORDER BY appointment_date DESC
+            """, (doctor_id,))
+        else:  # all
+            cursor.execute("""
+                SELECT * FROM appointments
+                WHERE doctor_id = ?
+                ORDER BY appointment_date DESC
+            """, (doctor_id,))
+        
+        appointments = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        
+        return {
+            "filter": filter,
+            "count": len(appointments),
+            "appointments": appointments,
+            "timestamp": datetime.now().isoformat(),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error getting doctor appointments: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/doctor/notifications")
+def doctor_get_notifications(authorization: str = Header(None)):
+    """Get doctor's notifications."""
+    try:
+        if not authorization:
+            raise HTTPException(status_code=401, detail="Authorization header required")
+        
+        token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
+        token_payload = verify_token(token)
+        if not token_payload or token_payload.role != "doctor":
+            raise HTTPException(status_code=401, detail="Invalid token")
+        
+        doctor_id = token_payload.sub
+        conn = get_conn()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT id, title, message, is_read, created_at FROM doctor_notifications
+            WHERE doctor_id = ?
+            ORDER BY created_at DESC LIMIT 50
+        """, (doctor_id,))
+        notifications = [dict(row) for row in cursor.fetchall()]
+        
+        # Get unread count
+        cursor.execute("""
+            SELECT COUNT(*) as count FROM doctor_notifications
+            WHERE doctor_id = ? AND is_read = 0
+        """, (doctor_id,))
+        unread_count = cursor.fetchone()["count"]
+        
+        conn.close()
+        
+        return {
+            "doctor_id": doctor_id,
+            "unread_count": unread_count,
+            "total_count": len(notifications),
+            "notifications": notifications,
+            "timestamp": datetime.now().isoformat(),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error getting doctor notifications: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/doctor/notifications/{notification_id}/read")
+def doctor_mark_notification_read(notification_id: int, authorization: str = Header(None)):
+    """Mark a notification as read."""
+    try:
+        if not authorization:
+            raise HTTPException(status_code=401, detail="Authorization header required")
+        
+        token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
+        token_payload = verify_token(token)
+        if not token_payload or token_payload.role != "doctor":
+            raise HTTPException(status_code=401, detail="Invalid token")
+        
+        doctor_id = token_payload.sub
+        conn = get_conn()
+        cursor = conn.cursor()
+        
+        # Verify notification belongs to doctor
+        cursor.execute("""
+            SELECT id FROM doctor_notifications
+            WHERE id = ? AND doctor_id = ?
+        """, (notification_id, doctor_id))
+        
+        if not cursor.fetchone():
+            conn.close()
+            raise HTTPException(status_code=404, detail="Notification not found")
+        
+        cursor.execute("""
+            UPDATE doctor_notifications SET is_read = 1 WHERE id = ?
+        """, (notification_id,))
+        conn.commit()
+        conn.close()
+        
+        return {
+            "success": True,
+            "notification_id": notification_id,
+            "message": "Notification marked as read",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error marking notification as read: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/doctor/profile")
+def doctor_get_profile(authorization: str = Header(None)):
+    """Get doctor's profile information."""
+    try:
+        if not authorization:
+            raise HTTPException(status_code=401, detail="Authorization header required")
+        
+        token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
+        token_payload = verify_token(token)
+        if not token_payload or token_payload.role != "doctor":
+            raise HTTPException(status_code=401, detail="Invalid token")
+        
+        doctor_id = token_payload.sub
+        conn = get_conn()
+        cursor = conn.cursor()
+        
+        # Get from both tables for complete info
+        cursor.execute("""
+            SELECT da.doctor_id, da.doctor_name, da.email, d.specialty, d.location, 
+                   d.hospital, d.experience, d.fee, d.rating, d.photo_url
+            FROM doctor_accounts da
+            LEFT JOIN doctors d ON da.doctor_id = d.id
+            WHERE da.doctor_id = ?
+        """, (doctor_id,))
+        row = cursor.fetchone()
+        conn.close()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="Doctor profile not found")
+        
+        return {
+            "doctor_id": row["doctor_id"],
+            "doctor_name": row["doctor_name"],
+            "email": row["email"],
+            "specialty": row["specialty"] or "",
+            "location": row["location"] or "",
+            "hospital": row["hospital"] or "",
+            "experience": row["experience"] or "",
+            "fee": row["fee"] or 0,
+            "rating": row["rating"] or 4.5,
+            "photo_url": row["photo_url"] or "",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error getting doctor profile: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/doctor/profile")
+def doctor_update_profile(data: dict, authorization: str = Header(None)):
+    """Update doctor's profile information."""
+    try:
+        if not authorization:
+            raise HTTPException(status_code=401, detail="Authorization header required")
+        
+        token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
+        token_payload = verify_token(token)
+        if not token_payload or token_payload.role != "doctor":
+            raise HTTPException(status_code=401, detail="Invalid token")
+        
+        doctor_id = token_payload.sub
+        conn = get_conn()
+        cursor = conn.cursor()
+        
+        # Update doctors table (profile info)
+        updates = {}
+        if "specialty" in data:
+            updates["specialty"] = data["specialty"]
+        if "location" in data:
+            updates["location"] = data["location"]
+        if "hospital" in data:
+            updates["hospital"] = data["hospital"]
+        if "experience" in data:
+            updates["experience"] = data["experience"]
+        if "fee" in data:
+            updates["fee"] = data["fee"]
+        if "photo_url" in data:
+            updates["photo_url"] = data["photo_url"]
+        
+        if updates:
+            updates["updated_at"] = datetime.now().isoformat()
+            set_clause = ", ".join([f"{k} = ?" for k in updates.keys()])
+            values = list(updates.values()) + [doctor_id]
+            cursor.execute(f"UPDATE doctors SET {set_clause} WHERE id = ?", values)
+        
+        conn.commit()
+        conn.close()
+        
+        return {
+            "success": True,
+            "doctor_id": doctor_id,
+            "message": "Profile updated successfully",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error updating doctor profile: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ═══════════════════════════════════════════════════════════════
+# EXCEL DOCTOR UPLOAD (PART 4)
+# ═══════════════════════════════════════════════════════════════
+
+from fastapi import UploadFile, File
+from openpyxl import load_workbook
+from io import BytesIO
+
+@app.post("/admin/doctors/upload")
+async def admin_upload_doctors(file: UploadFile = File(...), authorization: str = Header(None)):
+    """Upload doctors from Excel file (XLSX format)."""
+    try:
+        if not authorization:
+            raise HTTPException(status_code=401, detail="Authorization header required")
+        
+        token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
+        token_payload = verify_token(token)
+        if not token_payload or token_payload.role != "admin":
+            raise HTTPException(status_code=401, detail="Invalid token")
+        
+        # Read Excel file
+        contents = await file.read()
+        wb = load_workbook(BytesIO(contents))
+        ws = wb.active
+        
+        inserted = 0
+        skipped = 0
+        errors = []
+        
+        conn = get_conn()
+        cursor = conn.cursor()
+        now = datetime.now().isoformat()
+        
+        # Process rows (skip header row)
+        for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+            try:
+                # Extract columns: doctor_name, email, specialty, location, hospital, experience, fee, photo_url, password
+                if len(row) < 9:
+                    errors.append(f"Row {row_idx}: Not enough columns")
+                    skipped += 1
+                    continue
+                
+                doctor_name, email, specialty, location, hospital, experience, fee, photo_url, password = row[:9]
+                
+                if not doctor_name or not email or not specialty:
+                    errors.append(f"Row {row_idx}: Missing required fields")
+                    skipped += 1
+                    continue
+                
+                # Check if email already exists
+                cursor.execute("SELECT id FROM doctor_accounts WHERE email = ?", (email,))
+                if cursor.fetchone():
+                    errors.append(f"Row {row_idx}: Email already exists ({email})")
+                    skipped += 1
+                    continue
+                
+                # Generate doctor ID
+                doctor_id = f"d_{uuid.uuid4().hex[:8]}"
+                
+                # Create doctor profile
+                cursor.execute("""
+                    INSERT INTO doctors (id, doctor_name, email, specialty, location, hospital, 
+                                        experience, fee, photo_url, is_online, is_active, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?)
+                """, (doctor_id, doctor_name, email, specialty, location or "", hospital or "", 
+                      experience or "", fee or 500, photo_url or "", now, now))
+                
+                # Create doctor account with hashed password
+                password_hash = hash_password(password or "defaultPassword123")
+                cursor.execute("""
+                    INSERT INTO doctor_accounts (doctor_id, doctor_name, email, password_hash, is_active, verified, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, 1, 0, ?, ?)
+                """, (doctor_id, doctor_name, email, password_hash, now, now))
+                
+                inserted += 1
+                logger.info(f"Uploaded doctor: {doctor_name} ({email})")
+                
+            except Exception as e:
+                errors.append(f"Row {row_idx}: {str(e)}")
+                skipped += 1
+        
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"Doctor upload complete: {inserted} inserted, {skipped} skipped")
+        return {
+            "success": True,
+            "inserted": inserted,
+            "skipped": skipped,
+            "errors": errors,
+            "total": inserted + skipped,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error uploading doctors: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ═══════════════════════════════════════════════════════════════
+# APPOINTMENT CANCELLATION WITH NOTIFICATIONS (PART 6)
+# ═══════════════════════════════════════════════════════════════
+
+def create_doctor_notification(db_path: str, doctor_id: str, title: str, message: str) -> bool:
+    """Create a notification for doctor (non-blocking)."""
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        now = datetime.now().isoformat()
+        cursor.execute("""
+            INSERT INTO doctor_notifications (doctor_id, title, message, is_read, created_at)
+            VALUES (?, ?, ?, 0, ?)
+        """, (doctor_id, title, message, now))
+        conn.commit()
+        conn.close()
+        logger.info("Notification created for doctor %s: %s", doctor_id, title)
+        return True
+    except Exception as e:
+        logger.warning("Failed to create notification (non-blocking): %s", e)
+        return False
+
+@app.delete("/appointments/{appointment_id}")
+def cancel_appointment(appointment_id: str):
+    """Cancel an appointment and send notifications."""
+    try:
+        conn = get_conn()
+        cursor = conn.cursor()
+        
+        # Get appointment details
+        cursor.execute("""
+            SELECT patient_name, patient_phone, patient_location, doctor_id, doctor_name, 
+                   appointment_date, appointment_time FROM appointments
+            WHERE appointment_id = ?
+        """, (appointment_id,))
+        apt = cursor.fetchone()
+        
+        if not apt:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Appointment not found")
+        
+        patient_name, patient_phone, patient_location, doctor_id, doctor_name, apt_date, apt_time = apt
+        
+        # Update status to cancelled
+        cursor.execute("""
+            UPDATE appointments SET status = 'cancelled', updated_at = ? WHERE appointment_id = ?
+        """, (datetime.now().isoformat(), appointment_id))
+        
+        conn.commit()
+        conn.close()
+        
+        # Get patient email (optional - may not be stored)
+        # For now, we'll send to phone via notification system
+        try:
+            # Try to get doctor email for notification
+            conn = get_conn()
+            cursor = conn.cursor()
+            cursor.execute("SELECT email FROM doctor_accounts WHERE doctor_id = ?", (doctor_id,))
+            doc_email_row = cursor.fetchone()
+            doctor_email = doc_email_row[0] if doc_email_row else None
+            conn.close()
+            
+            # Send emails (non-blocking)
+            if doctor_email:
+                send_doctor_cancellation_email(doctor_name, doctor_email, patient_name, apt_date, apt_time)
+            
+            # Create doctor notification (non-blocking)
+            create_doctor_notification(
+                DB_PATH,
+                doctor_id,
+                f"Appointment Cancelled: {patient_name}",
+                f"Patient appointment on {apt_date} at {apt_time} has been cancelled."
+            )
+        except Exception as e:
+            logger.warning("Notification/email failed but cancellation succeeded: %s", e)
+        
+        return {
+            "success": True,
+            "appointment_id": appointment_id,
+            "message": "Appointment cancelled successfully",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error cancelling appointment: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ═══════════════════════════════════════════════════════════════
+# REMOVE HARDCODED DOCTORS (PART 8)
+# ═══════════════════════════════════════════════════════════════
+# The DOCTORS list has been migrated to the database via migrate_doctors_to_database()
+# All subsequent requests use the SQLite database for doctor data.
+# The DOCTORS list is retained ONLY for:
+#   1. Initial database migration (one-time operation on first run)
+#   2. Fallback in /doctors/{id} endpoint during transition
+# ═══════════════════════════════════════════════════════════════
         conn.commit()
         conn.close()
         

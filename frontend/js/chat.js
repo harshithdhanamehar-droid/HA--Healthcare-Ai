@@ -118,6 +118,34 @@ function displayChatHistory(sessions) {
     content.appendChild(icon);
     content.appendChild(text);
 
+    const actions = document.createElement("div");
+    actions.className = "history-actions";
+    actions.style.display = "none";
+    actions.style.flexShrink = "0";
+    actions.style.display = "flex";
+    actions.style.gap = "4px";
+
+    // Rename button
+    const renameBtn = document.createElement("button");
+    renameBtn.className = "history-action-btn";
+    renameBtn.setAttribute("aria-label", "Rename chat");
+    renameBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="17" y1="3" x2="21" y2="7"/><path d="M3 17v4h4L19.47 7.47"/></svg>';
+    renameBtn.onclick = (e) => {
+      e.stopPropagation();
+      renameChat(session.chat_id);
+    };
+
+    // Archive button
+    const archiveBtn = document.createElement("button");
+    archiveBtn.className = "history-action-btn";
+    archiveBtn.setAttribute("aria-label", "Archive chat");
+    archiveBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="21 8 21 21 3 21 3 8"/><line x1="1" y1="3" x2="23" y2="3"/><path d="M10 12v5M14 12v5"/></svg>';
+    archiveBtn.onclick = (e) => {
+      e.stopPropagation();
+      archiveChat(session.chat_id);
+    };
+
+    // Delete button
     const deleteBtn = document.createElement("button");
     deleteBtn.className = "history-delete";
     deleteBtn.setAttribute("aria-label", "Delete chat");
@@ -127,7 +155,16 @@ function displayChatHistory(sessions) {
       deleteChatSession(session.chat_id);
     };
 
+    actions.appendChild(renameBtn);
+    actions.appendChild(archiveBtn);
+    actions.appendChild(deleteBtn);
+
+    // Show actions on hover
+    item.onmouseenter = () => { actions.style.opacity = "1"; deleteBtn.style.opacity = "1"; };
+    item.onmouseleave = () => { actions.style.opacity = "0"; };
+
     item.appendChild(content);
+    item.appendChild(actions);
     item.appendChild(deleteBtn);
 
     // Append at the end of the list (before the hidden empty-state node)
@@ -221,8 +258,7 @@ function searchChats(query) {
 }
 
 // ── Rename Chat ───────────────────────────────────────────────────
-async function renameChat(chatId, e) {
-  e.stopPropagation();
+async function renameChat(chatId) {
   const newTitle = prompt("Enter new title for this chat:");
   if (!newTitle || !newTitle.trim()) return;
   
@@ -236,9 +272,7 @@ async function renameChat(chatId, e) {
 }
 
 // ── Archive Chat ──────────────────────────────────────────────────
-async function archiveChat(chatId, e) {
-  e.stopPropagation();
-  
+async function archiveChat(chatId) {
   try {
     await apiPut(`/chat/session/${chatId}/archive`, {});
     loadChatHistory();

@@ -1,8 +1,13 @@
 /* ═══════════════════════════════════════════════════════════════
-   HA! — Login Logic with Multi-Role Auth
+   HA! — Login Logic  (rewritten)
+   Flow:
+     Patient:  email + password  → login
+               email (no pw)     → send OTP  → verify OTP → login
+     Both:     if needs_profile  → profile modal → chat.html
    ═══════════════════════════════════════════════════════════════ */
+"use strict";
 
-// ── API base URL — auto-detected by environment ───────────────────
+// ── API base ──────────────────────────────────────────────────────
 const API_BASE = (
   window.location.protocol === "file:" ||
   window.location.hostname === "localhost" ||
@@ -11,578 +16,658 @@ const API_BASE = (
   ? "http://127.0.0.1:8000"
   : "https://ha-healthcare-ai.onrender.com";
 
-// ── Storage keys ──────────────────────────────────────────────────
-const STORAGE_KEYS = {
-  TOKEN: 'ha_auth_token',
-  USER_ID: 'ha_user_id',
-  ROLE: 'ha_user_role',
-  EXPIRES_IN: 'ha_token_expires',
-};
+// ── State ─────────────────────────────────────────────────────────
+let _pendingEmail   = "";   // email used when OTP was sent
+let _pendingUserId  = "";   // filled after OTP verify, used for profile setup
+let _googleClientId = "";
+let _googleReady    = false;
 
-// ── Utility: Show loading state ───────────────────────────────────
-function showLoading(btnId) {
-  // If it's a form ID, find the button inside
-  let btn = document.querySelector(`#${btnId}`);
+// ── DOM ready ─────────────────────────────────────────────────────
+document.addEventListener("DOMContentLoaded", () => {
+  console.log("=== LOGIN PAGE INITIALIZED ===");
   
-  if (!btn) {
-    // Try to find a button in the form
-    const form = document.getElementById(btnId);
-    if (form && form.tagName === 'FORM') {
-      btn = form.querySelector('.login-btn');
+  // Tab switching
+  document.querySelectorAll(".auth-tab").forEach(tab => {
+    tab.addEventListener("click", () => switchAuthTab(tab.dataset.tab));
+  });
+
+  // Enter key bindings — credentials step
+  ["userEmail", "userPassword"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener("keydown", e => { 
+        if (e.key === "Enter") {
+          console.log(`Enter pressed on ${id}`);
+          handlePatientLogin();
+        }
+      });
     }
-  }
-  
-  if (btn) {
-    // Disable all buttons in the form
-    const form = btn.closest('form');
-    if (form) {
-      form.querySelectorAll('button').forEach(b => b.disabled = true);
-    }
-    btn.disabled = true;
-    
-    // Hide text, show spinner
-    const textSpan = btn.querySelector('span:not(.spinner)');
-    const spinner = btn.querySelector('.spinner');
-    if (textSpan) textSpan.style.display = 'none';
-    if (spinner) spinner.style.display = 'inline-block';
-  }
-}
-
-function hideLoading(btnId) {
-  // If it's a form ID, find the button inside
-  let btn = document.querySelector(`#${btnId}`);
-  
-  if (!btn) {
-    // Try to find a button in the form
-    const form = document.getElementById(btnId);
-    if (form && form.tagName === 'FORM') {
-      btn = form.querySelector('.login-btn');
-    }
-  }
-  
-  if (btn) {
-    // Enable all buttons
-    const form = btn.closest('form');
-    if (form) {
-      form.querySelectorAll('button').forEach(b => b.disabled = false);
-    }
-    btn.disabled = false;
-    
-    // Show text, hide spinner
-    const textSpan = btn.querySelector('span:not(.spinner)');
-    const spinner = btn.querySelector('.spinner');
-    if (textSpan) textSpan.style.display = 'inline';
-    if (spinner) spinner.style.display = 'none';
-  }
-}
-
-// ── Utility: Show error ───────────────────────────────────────────
-function showError(msgId, message) {
-  const el = document.getElementById(msgId);
-  if (el) {
-    el.textContent = message;
-  }
-}
-
-// ── Utility: Clear error ──────────────────────────────────────────
-function clearError(msgId) {
-  const el = document.getElementById(msgId);
-  if (el) {
-    el.textContent = '';
-  }
-}
-
-// ── Utility: Save auth token ──────────────────────────────────────
-function saveAuthToken(token, userId, role, expiresIn) {
-  localStorage.setItem(STORAGE_KEYS.TOKEN, token);
-  localStorage.setItem(STORAGE_KEYS.USER_ID, userId);
-  localStorage.setItem(STORAGE_KEYS.ROLE, role);
-  localStorage.setItem(STORAGE_KEYS.EXPIRES_IN, Date.now() + expiresIn * 1000);
-}
-
-// ── Utility: Toggle password visibility ───────────────────────────
-function togglePasswordVisibility(inputId) {
-  const input = document.getElementById(inputId);
-  input.type = input.type === 'password' ? 'text' : 'password';
-}
-
-// ─────────────────────────────────────────────────────────────────
-// AUTH TAB SWITCHING
-// ─────────────────────────────────────────────────────────────────
-
-document.addEventListener('DOMContentLoaded', () => {
-  console.log('🔧 Initializing login page...');
-  
-  // Set up auth tab switching
-  const tabs = document.querySelectorAll('.auth-tab');
-  console.log(`✓ Found ${tabs.length} auth tabs`);
-  
-  tabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-      const tabName = tab.getAttribute('data-tab');
-      console.log(`Clicked tab: ${tabName}`);
-      switchAuthTab(tabName);
+  });
+  const otpInput = document.getElementById("otpCode");
+  if (otpInput) {
+    otpInput.addEventListener("keydown", e => { 
+      if (e.key === "Enter") {
+        console.log("Enter pressed on otpCode");
+        verifyPatientOtp();
+      }
     });
-  });
+  }
 
-  // Verify all forms exist
-  const forms = ['patientForm', 'doctorForm', 'adminForm'];
-  forms.forEach(formId => {
-    const form = document.getElementById(formId);
-    if (form) {
-      console.log(`✓ Form found: ${formId}`);
-    } else {
-      console.error(`✗ Form NOT found: ${formId}`);
-    }
+  // Doctor + admin Enter bindings
+  ["doctorEmail", "doctorPassword"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("keydown", e => { if (e.key === "Enter") doctorLogin(); });
   });
+  const adminPin = document.getElementById("adminPin");
+  if (adminPin) adminPin.addEventListener("keydown", e => { if (e.key === "Enter") adminLogin(); });
 
-  // Set patient as default active form
-  const patientForm = document.getElementById('patientForm');
-  if (patientForm) {
-    patientForm.classList.add('active');
-    console.log('✓ Patient form set as default active');
+  // Google OAuth — check backend configuration first
+  const googleBtn = document.getElementById("googleLoginBtn");
+  if (googleBtn) {
+    googleBtn.addEventListener("click", handleGoogleLogin);
+    initGoogleLogin();
   }
 });
 
+// ── Tab switching ─────────────────────────────────────────────────
 function switchAuthTab(tabName) {
-  // Update active tab
-  document.querySelectorAll('.auth-tab').forEach(tab => {
-    tab.classList.remove('active');
+  document.querySelectorAll(".auth-tab").forEach(t => t.classList.remove("active"));
+  document.querySelector(`[data-tab="${tabName}"]`).classList.add("active");
+
+  document.querySelectorAll(".auth-method").forEach(f => {
+    f.classList.remove("active");
+    f.style.display = "none";
   });
-  document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+  const form = document.getElementById(`${tabName}Form`);
+  if (form) { form.classList.add("active"); form.style.display = ""; }
 
-  // Update active form - remove active class from all first
-  document.querySelectorAll('.auth-method').forEach(form => {
-    form.classList.remove('active');
-    form.style.display = 'none'; // Ensure it's hidden
-  });
-
-  // Then add active class and show the selected form
-  const selectedForm = document.getElementById(`${tabName}Form`);
-  if (selectedForm) {
-    selectedForm.classList.add('active');
-    selectedForm.style.display = 'block'; // Ensure it's visible
-    console.log(`✓ Switched to ${tabName} tab`);
-  } else {
-    console.error(`✗ Form not found: ${tabName}Form`);
-  }
-
-  // Clear errors
-  clearError('error-msg');
-  clearError('otp-error-msg');
-  clearError('doctor-error-msg');
-  clearError('doctor-otp-error-msg');
-  clearError('admin-error-msg');
+  // Clear all errors
+  ["error-msg","otp-error-msg","doctor-error-msg","doctor-otp-error-msg","admin-error-msg"]
+    .forEach(id => { const el = document.getElementById(id); if (el) el.textContent = ""; });
 }
 
-// ─────────────────────────────────────────────────────────────────
-// PATIENT LOGIN
-// ─────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────
+function setError(id, msg, color = "var(--accent-red, #ef4444)") {
+  const el = document.getElementById(id);
+  if (el) { el.textContent = msg; el.style.color = color; }
+}
+function clearError(id) { setError(id, ""); }
 
-async function login() {
-  const name     = document.getElementById("name").value.trim();
-  const phone    = document.getElementById("phone").value.trim();
-  const location = document.getElementById("location").value.trim();
-  const errorMsg = document.getElementById("error-msg");
+function togglePasswordVisibility(inputId) {
+  const el = document.getElementById(inputId);
+  if (el) el.type = el.type === "password" ? "text" : "password";
+}
 
-  errorMsg.textContent = "";
+function setBtnLoading(btnId, textId, loaderId, loading) {
+  const btn  = document.getElementById(btnId);
+  const text = document.getElementById(textId);
+  const spin = document.getElementById(loaderId);
+  if (btn)  btn.disabled = loading;
+  if (text) text.style.display = loading ? "none" : "";
+  if (spin) spin.style.display = loading ? "inline-block" : "none";
+}
 
-  // ── Validation ──────────────────────────────────────────────────
-  const nameRegex     = /^[A-Za-z\s]{2,50}$/;
-  const phoneRegex    = /^[6-9][0-9]{9}$/;
-  const locationRegex = /^[A-Za-z\s,.-]{2,60}$/;
+function saveSession(data) {
+  localStorage.setItem("ha_logged_in",    "true");
+  localStorage.setItem("ha_user_id",      data.user_id  || "");
+  localStorage.setItem("ha_email",        data.email    || "");
+  localStorage.setItem("ha_name",         data.name     || "");
+  localStorage.setItem("ha_phone",        data.phone    || "");
+  localStorage.setItem("ha_location",     data.location || "");
+  localStorage.setItem("ha_role",         data.role     || "user");
+  if (data.token) localStorage.setItem("ha_auth_token", data.token);
+}
 
-  if (!name) {
-    errorMsg.textContent = "Please enter your full name.";
-    document.getElementById("name").focus();
-    return;
+async function apiPost(endpoint, body) {
+  const res = await fetch(`${API_BASE}${endpoint}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const raw = await res.text();
+  const json = raw ? JSON.parse(raw) : {};
+  if (!res.ok) {
+    const err = new Error(json.detail || json.message || `HTTP ${res.status}`);
+    err.status = res.status;
+    err.body = json;
+    err.rawBody = raw;
+    throw err;
   }
-  if (!nameRegex.test(name)) {
-    errorMsg.textContent = "Name must contain letters only (2–50 characters).";
-    return;
+  return json;
+}
+
+function apiErrorMessage(err, fallback = "Request failed. Please try again.") {
+  if (err?.body?.detail) return err.body.detail;
+  if (err?.body?.message) return err.body.message;
+  if (err?.message) return err.message;
+  return fallback;
+}
+
+// ── After successful login: route to profile setup or chat ────────
+function afterLogin(data) {
+  saveSession(data);
+
+  if (data.needs_profile) {
+    // Store pending user id for profile submit
+    _pendingUserId = data.user_id;
+    // Pre-fill what we know
+    const nameEl = document.getElementById("profile-name");
+    if (nameEl && data.name) nameEl.value = data.name;
+    // Show modal
+    const modal = document.getElementById("profile-modal");
+    if (modal) modal.style.display = "flex";
+  } else {
+    window.location.href = "chat.html";
   }
-  if (!phone) {
-    errorMsg.textContent = "Please enter your mobile number.";
-    document.getElementById("phone").focus();
-    return;
-  }
-  if (!phoneRegex.test(phone)) {
-    errorMsg.textContent = "Enter a valid 10-digit Indian mobile number.";
-    return;
-  }
-  if (!location) {
-    errorMsg.textContent = "Please enter your location.";
-    document.getElementById("location").focus();
-    return;
-  }
-  if (!locationRegex.test(location)) {
-    errorMsg.textContent = "Location must contain letters only.";
-    return;
+}
+
+// ── OTP Countdown Timer ───────────────────────────────────────────
+let _otpCountdownTimer = null;
+
+function startOtpCountdown() {
+  let seconds = 60;
+  const resendBtn = document.getElementById("resendOtpBtn");
+  const countdown = document.getElementById("otp-countdown");
+  if (resendBtn) resendBtn.disabled = true;
+  if (countdown) countdown.style.display = "";
+
+  clearInterval(_otpCountdownTimer);
+  _otpCountdownTimer = setInterval(() => {
+    seconds--;
+    if (countdown) countdown.textContent = `Resend OTP in ${seconds}s`;
+    if (seconds <= 0) {
+      clearInterval(_otpCountdownTimer);
+      if (resendBtn) resendBtn.disabled = false;
+      if (countdown) countdown.style.display = "none";
+    }
+  }, 1000);
+}
+
+function stopOtpCountdown() {
+  clearInterval(_otpCountdownTimer);
+  const resendBtn = document.getElementById("resendOtpBtn");
+  const countdown = document.getElementById("otp-countdown");
+  if (resendBtn) resendBtn.disabled = false;
+  if (countdown) countdown.style.display = "none";
+}
+
+// ── Resend OTP ────────────────────────────────────────────────────
+async function resendPatientOtp() {
+  clearError("otp-error-msg");
+  console.log("=== RESEND OTP START ===");
+  console.log("_pendingEmail:", _pendingEmail);
+  
+  if (!_pendingEmail) { 
+    console.log("No _pendingEmail - showing error");
+    setError("otp-error-msg", "No email to resend OTP to."); 
+    return; 
   }
 
-  // ── Show Loader ──────────────────────────────────────────────────
-  const btnText  = document.getElementById("btn-text");
-  const loader   = document.getElementById("loader");
-  btnText.style.display = "none";
-  loader.style.display  = "block";
+  const resendBtn = document.getElementById("resendOtpBtn");
+  if (resendBtn) resendBtn.disabled = true;
 
   try {
-    // Register with backend
-    await fetch(`${API_BASE}/auth/register`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, phone, location }),
-    });
-  } catch (_) {
-    // Backend offline — still allow login (offline-first)
+    console.log("Calling /auth/user/otp/resend for:", _pendingEmail);
+    const data = await apiPost("/auth/user/otp/resend", { email: _pendingEmail, purpose: "login" });
+    if (data.success === false) {
+      setError("otp-error-msg", data.message || "Failed to resend OTP.");
+      return;
+    }
+
+    // Clear old OTP input
+    const otpInput = document.getElementById("otpCode");
+    if (otpInput) otpInput.value = "";
+    
+    console.log("OTP resent successfully");
+    setError("otp-error-msg", "New OTP sent to your email.", "var(--accent-green, #10b981)");
+
+    // Restart countdown
+    startOtpCountdown();
+  } catch (err) {
+    console.error("Resend OTP error:", err.message);
+    setError("otp-error-msg", err.message || "Failed to resend OTP.");
+  } finally {
+    if (resendBtn) resendBtn.disabled = false;
+  }
+}
+
+// ── Google Login ──────────────────────────────────────────────────
+async function initGoogleLogin() {
+  const googleBtn = document.getElementById("googleLoginBtn");
+  if (!googleBtn) return;
+
+  googleBtn.disabled = true;
+  googleBtn.title = "Checking Google login...";
+
+  try {
+    const res = await fetch(`${API_BASE}/auth/google/status`);
+    const data = await res.json().catch(() => ({}));
+    console.log("Google OAuth status:", { status: res.status, body: data });
+
+    if (!res.ok || !data.configured || !data.client_id) {
+      googleBtn.disabled = true;
+      googleBtn.title = "Google login is not configured.";
+      return;
+    }
+
+    // Google is configured — initialize Google Identity Services
+    _googleClientId = data.client_id;
+    googleBtn.disabled = false;
+    googleBtn.title = "Continue with Google";
+    initGoogleIdentity();
+  } catch (err) {
+    console.warn("Google OAuth status check failed:", err);
+    googleBtn.disabled = true;
+    googleBtn.title = "Google login is unavailable.";
+  }
+}
+
+function initGoogleIdentity() {
+  if (_googleReady) return true;
+  if (!_googleClientId) return false;
+  if (typeof google === "undefined" || !google.accounts?.id) return false;
+
+  google.accounts.id.initialize({
+    client_id: _googleClientId,
+    callback: handleGoogleCredential,
+    auto_select: false,
+    use_fedcm_for_prompt: false,
+  });
+  _googleReady = true;
+  return true;
+}
+
+async function handleGoogleLogin() {
+  clearError("error-msg");
+  const googleBtn = document.getElementById("googleLoginBtn");
+
+  if (!_googleClientId) {
+    setError("error-msg", "Google login is not configured. Please use email/OTP login.");
+    return;
   }
 
-  // Save to localStorage
-  localStorage.setItem("ha_logged_in", "true");
-  localStorage.setItem("ha_name",      name);
-  localStorage.setItem("ha_phone",     phone);
-  localStorage.setItem("ha_location",  location);
+  if (!initGoogleIdentity()) {
+    setError("error-msg", "Google Sign-In is still loading. Please try again.");
+    return;
+  }
 
-  // Redirect
-  setTimeout(() => {
-    window.location.href = "chat.html";
-  }, 800);
+  if (googleBtn) googleBtn.disabled = true;
+  google.accounts.id.prompt();
+  setTimeout(() => { if (googleBtn) googleBtn.disabled = false; }, 1000);
 }
 
-// ─────────────────────────────────────────────────────────────────
-// PATIENT OTP LOGIN
-// ─────────────────────────────────────────────────────────────────
-
-function showOtpForm() {
-  document.getElementById('otpSection').style.display = 'block';
-  document.getElementById('userEmail').focus();
+// ── Google credential callback ────────────────────────────────────
+async function handleGoogleCredential(response) {
+  clearError("error-msg");
+  try {
+    const data = await apiPost("/auth/google/login", {
+      token: response.credential,
+    });
+    console.log("Google login backend response:", data);
+    afterLogin(data);
+  } catch (err) {
+    setError("error-msg", "Google sign-in failed: " + apiErrorMessage(err));
+  }
 }
 
-async function requestPatientOtp() {
-  const email = document.getElementById('userEmail').value.trim();
-  const errorMsg = document.getElementById('otp-error-msg');
-  errorMsg.textContent = '';
+
+async function handlePatientLogin() {
+  const email    = (document.getElementById("userEmail")?.value    || "").trim();
+  const password = (document.getElementById("userPassword")?.value || "").trim();
+  clearError("error-msg");
+
+  console.log("=== PATIENT LOGIN START ===");
+  console.log("Email:", email);
+  console.log("Has password:", !!password);
+  console.log("Has _pendingEmail:", !!_pendingEmail);
+
+  if (!email || !email.includes("@")) {
+    setError("error-msg", "Please enter a valid email address.");
+    document.getElementById("userEmail")?.focus();
+    return;
+  }
+
+  setBtnLoading("continueBtn", "btn-text", "loader", true);
+
+  try {
+    if (password) {
+      // ── Password login ────────────────────────────────────────
+      console.log("Attempting password login");
+      const data = await apiPost("/auth/user/login", { email, password });
+      setBtnLoading("continueBtn", "btn-text", "loader", false);
+      afterLogin(data);
+    } else {
+      // ── OTP login — send OTP ──────────────────────────────────
+      console.log("No password - requesting OTP");
+      const data = await apiPost("/auth/user/otp/request", { email, purpose: "login" });
+      setBtnLoading("continueBtn", "btn-text", "loader", false);
+
+      if (data.success === false) {
+        setError("error-msg", data.message || "Failed to send OTP. Check email or try again.");
+        return;
+      }
+
+      _pendingEmail = email;
+      console.log("OTP requested, _pendingEmail set to:", email);
+
+      // Show OTP step
+      document.getElementById("step-credentials").style.display = "none";
+      document.getElementById("step-otp").style.display = "";
+      const sentEl = document.getElementById("otp-sent-email");
+      if (sentEl) sentEl.textContent = email;
+      document.getElementById("otpCode")?.focus();
+
+      // Start countdown timer for resend
+      startOtpCountdown();
+
+      // Dev mode: show OTP inline
+      if (data.dev_otp) {
+        setError("otp-error-msg", `[Dev] OTP: ${data.dev_otp}`, "var(--accent, #00d4aa)");
+      }
+    }
+  } catch (err) {
+    setBtnLoading("continueBtn", "btn-text", "loader", false);
+    console.error("handlePatientLogin error:", err.message);
+    setError("error-msg", err.message);
+  }
+}
+
+// ── Patient — verify OTP ──────────────────────────────────────────
+async function verifyPatientOtp() {
+  const otp = (document.getElementById("otpCode")?.value || "").trim();
+  const email = _pendingEmail || (document.getElementById("userEmail")?.value || "").trim();
+  clearError("otp-error-msg");
+
+  console.log("=== VERIFY OTP START ===");
+  console.log("_pendingEmail:", _pendingEmail);
+  console.log("email input value:", document.getElementById("userEmail")?.value);
+  console.log("final email:", email);
 
   if (!email) {
-    errorMsg.textContent = 'Please enter your email address.';
+    setError("otp-error-msg", "Email session expired. Please request a new OTP.");
+    resetToCredentials();
     return;
   }
-
-  showLoading('requestOtpBtn');
-
-  try {
-    const response = await fetch(`${API_BASE}/auth/user/otp/request`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: email,
-        purpose: 'verification',
-      }),
-    });
-
-    const data = await response.json();
-    hideLoading('requestOtpBtn');
-
-    if (response.ok) {
-      // Show OTP input field
-      document.getElementById('otpCodeGroup').style.display = 'block';
-      document.getElementById('requestOtpBtn').style.display = 'none';
-      document.getElementById('verifyOtpBtn').style.display = 'block';
-      document.getElementById('userOtp').focus();
-      errorMsg.textContent = `OTP sent to ${email}. Check your email.`;
-      errorMsg.style.color = 'var(--accent)';
-    } else {
-      errorMsg.textContent = data.detail || 'Failed to send OTP.';
-    }
-  } catch (error) {
-    hideLoading('requestOtpBtn');
-    errorMsg.textContent = 'Network error. Please try again.';
-  }
-}
-
-async function verifyPatientOtp() {
-  const email = document.getElementById('userEmail').value.trim();
-  const otp = document.getElementById('userOtp').value.trim();
-  const errorMsg = document.getElementById('otp-error-msg');
-  errorMsg.textContent = '';
 
   if (!otp || otp.length !== 6) {
-    errorMsg.textContent = 'Please enter a valid 6-digit OTP.';
+    setError("otp-error-msg", "Enter the 6-digit OTP from your email.");
     return;
   }
 
-  showLoading('verifyOtpBtn');
+  const otpLoader = document.getElementById("otp-loader");
+  const otpBtn    = otpLoader?.closest("button");
+  if (otpBtn)    otpBtn.disabled = true;
+  if (otpLoader) otpLoader.style.display = "inline-block";
 
   try {
-    const response = await fetch(`${API_BASE}/auth/user/otp/verify`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: email,
-        otp_code: otp,
-      }),
+    const payload = { email, otp_code: otp };
+    console.log("=== OTP VERIFY REQUEST ===");
+    console.log("Payload:", payload);
+    console.log("Endpoint:", `${API_BASE}/auth/user/otp/verify`);
+
+    const res = await fetch(`${API_BASE}/auth/user/otp/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     });
+    const rawBody = await res.text();
+    const data = rawBody ? JSON.parse(rawBody) : {};
 
-    const data = await response.json();
-    hideLoading('verifyOtpBtn');
+    console.log("=== OTP VERIFY RESPONSE ===");
+    console.log("Status:", res.status);
+    console.log("OK:", res.ok);
+    console.log("Raw body:", rawBody);
+    console.log("Parsed data:", data);
 
-    if (response.ok) {
-      saveAuthToken(data.token, data.user_id, data.role, data.expires_in);
-      localStorage.setItem('ha_logged_in', 'true');
-      localStorage.setItem('ha_name', email.split('@')[0]);
-      localStorage.setItem('ha_phone', email);
-      localStorage.setItem('ha_location', 'Not provided');
-
-      setTimeout(() => {
-        window.location.href = 'chat.html';
-      }, 800);
-    } else {
-      errorMsg.textContent = data.detail || 'Invalid OTP. Please try again.';
+    if (!res.ok) {
+      console.log("Response NOT OK - throwing error");
+      throw Object.assign(
+        new Error(data.detail || data.message || `OTP verification failed (HTTP ${res.status})`),
+        { status: res.status, body: data, rawBody }
+      );
     }
-  } catch (error) {
-    hideLoading('verifyOtpBtn');
-    errorMsg.textContent = 'Network error. Please try again.';
+
+    if (otpBtn)    otpBtn.disabled = false;
+    if (otpLoader) otpLoader.style.display = "none";
+
+    // CLEAR _pendingEmail after successful verification to prevent reuse
+    _pendingEmail = "";
+    // Clear email and OTP fields for security
+    const emailField = document.getElementById("userEmail");
+    const otpField = document.getElementById("otpCode");
+    if (emailField) emailField.value = "";
+    if (otpField) otpField.value = "";
+    
+    stopOtpCountdown();
+    console.log("OTP verification succeeded - calling afterLogin");
+    afterLogin(data);
+  } catch (err) {
+    console.log("=== OTP VERIFY CATCH BLOCK ===");
+    console.log("Error message:", err.message);
+    console.log("Error status:", err.status);
+    console.log("Error response:", err.body);
+    console.log("NOT calling any OTP request function from here");
+    
+    if (otpBtn)    otpBtn.disabled = false;
+    if (otpLoader) otpLoader.style.display = "none";
+    console.error("Patient OTP verify failed:", {
+      status: err.status || null,
+      response: err.rawBody || err.body || err.message,
+    });
+    setError("otp-error-msg", apiErrorMessage(err, "Invalid or expired OTP. Please request a new one."));
+    console.log("=== VERIFY OTP END (ERROR) ===");
   }
 }
 
-// ─────────────────────────────────────────────────────────────────
+// ── Patient — back to credentials step ───────────────────────────
+function resetToCredentials() {
+  document.getElementById("step-credentials").style.display = "";
+  document.getElementById("step-otp").style.display = "none";
+  clearError("error-msg");
+  clearError("otp-error-msg");
+  if (document.getElementById("otpCode")) document.getElementById("otpCode").value = "";
+  stopOtpCountdown();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PROFILE SETUP MODAL
+// ═══════════════════════════════════════════════════════════════
+async function submitProfileSetup() {
+  const name     = (document.getElementById("profile-name")?.value     || "").trim();
+  const phone    = (document.getElementById("profile-phone")?.value    || "").trim();
+  const location = (document.getElementById("profile-location")?.value || "").trim();
+  clearError("profile-error");
+
+  if (!name) { setError("profile-error", "Please enter your name."); return; }
+  if (!phone || !/^[6-9][0-9]{9}$/.test(phone)) {
+    setError("profile-error", "Enter a valid 10-digit Indian mobile number.");
+    return;
+  }
+  if (!location) { setError("profile-error", "Please enter your city / location."); return; }
+
+  const btnText = document.getElementById("profile-btn-text");
+  const loader  = document.getElementById("profile-loader");
+  if (btnText) btnText.style.display = "none";
+  if (loader)  loader.style.display  = "inline-block";
+  const saveBtn = loader?.closest("button");
+  if (saveBtn) saveBtn.disabled = true;
+
+  try {
+    await apiPost("/auth/user/profile-setup", {
+      user_id: _pendingUserId,
+      name, phone, location,
+    });
+
+    // Update localStorage with new profile
+    localStorage.setItem("ha_name",     name);
+    localStorage.setItem("ha_phone",    phone);
+    localStorage.setItem("ha_location", location);
+
+    window.location.href = "chat.html";
+  } catch (err) {
+    if (btnText) btnText.style.display = "";
+    if (loader)  loader.style.display  = "none";
+    if (saveBtn) saveBtn.disabled = false;
+    setError("profile-error", err.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
 // DOCTOR LOGIN
-// ─────────────────────────────────────────────────────────────────
-
+// ═══════════════════════════════════════════════════════════════
 async function doctorLogin() {
-  const email = document.getElementById('doctorEmail').value.trim();
-  const password = document.getElementById('doctorPassword').value;
-  const errorMsg = document.getElementById('doctor-error-msg');
-  errorMsg.textContent = '';
+  const email    = (document.getElementById("doctorEmail")?.value    || "").trim();
+  const password = (document.getElementById("doctorPassword")?.value || "");
+  const errEl    = document.getElementById("doctor-error-msg");
+  if (errEl) errEl.textContent = "";
 
-  if (!email) {
-    errorMsg.textContent = 'Please enter your email.';
-    document.getElementById('doctorEmail').focus();
-    return;
-  }
+  if (!email)    { if (errEl) errEl.textContent = "Email required.";    return; }
+  if (!password) { if (errEl) errEl.textContent = "Password required."; return; }
 
-  if (!password) {
-    errorMsg.textContent = 'Please enter your password.';
-    document.getElementById('doctorPassword').focus();
-    return;
-  }
-
-  showLoading('doctorForm');
+  const btn  = document.querySelector("#doctorForm .login-btn");
+  const text = document.querySelector("#doctorForm .doctor-btn-text");
+  const spin = document.querySelector("#doctorForm .doctor-loader");
+  if (btn)  btn.disabled = true;
+  if (text) text.style.display = "none";
+  if (spin) spin.style.display = "inline-block";
 
   try {
-    const response = await fetch(`${API_BASE}/auth/doctor/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: email,
-        password: password,
-      }),
+    const res = await fetch(`${API_BASE}/auth/doctor/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
     });
+    const data = await res.json().catch(() => ({}));
 
-    const data = await response.json();
-    hideLoading('doctorForm');
-
-    if (response.ok) {
-      saveAuthToken(data.token, data.user_id, data.role, data.expires_in);
-      localStorage.setItem('ha_logged_in', 'true');
-      localStorage.setItem('ha_email', email);
-      localStorage.setItem('ha_role', 'doctor');
-
-      setTimeout(() => {
-        window.location.href = 'chat.html';
-      }, 800);
+    if (res.ok) {
+      localStorage.setItem("ha_logged_in",    "true");
+      localStorage.setItem("ha_role",         "doctor");
+      localStorage.setItem("ha_email",        email);
+      localStorage.setItem("ha_auth_token",   data.token || "");
+      localStorage.setItem("ha_user_id",      data.user_id || "");
+      setTimeout(() => { window.location.href = "chat.html"; }, 600);
     } else {
-      // Show specific error message from backend
-      errorMsg.textContent = data.detail || 'Invalid credentials.';
+      if (errEl) errEl.textContent = data.detail || "Invalid credentials.";
     }
-  } catch (error) {
-    hideLoading('doctorForm');
-    errorMsg.textContent = 'Network error. Please try again.';
+  } catch {
+    if (errEl) errEl.textContent = "Network error. Please try again.";
+  } finally {
+    if (btn)  btn.disabled = false;
+    if (text) text.style.display = "";
+    if (spin) spin.style.display = "none";
   }
 }
 
-// ─────────────────────────────────────────────────────────────────
-// DOCTOR OTP LOGIN
-// ─────────────────────────────────────────────────────────────────
-
+// ── Doctor OTP ────────────────────────────────────────────────────
 function showDoctorOtpForm() {
-  document.getElementById('doctorOtpSection').style.display = 'block';
-  document.getElementById('doctorOtpEmail').focus();
+  const sec = document.getElementById("doctorOtpSection");
+  if (sec) sec.style.display = "block";
+  document.getElementById("doctorOtpEmail")?.focus();
 }
 
 async function requestDoctorOtp() {
-  const email = document.getElementById('doctorOtpEmail').value.trim();
-  const errorMsg = document.getElementById('doctor-otp-error-msg');
-  errorMsg.textContent = '';
+  const email = (document.getElementById("doctorOtpEmail")?.value || "").trim();
+  const errEl = document.getElementById("doctor-otp-error-msg");
+  if (errEl) errEl.textContent = "";
+  if (!email) { if (errEl) errEl.textContent = "Email required."; return; }
 
-  if (!email) {
-    errorMsg.textContent = 'Please enter your email address.';
-    return;
-  }
-
-  showLoading('doctorRequestOtpBtn');
+  const btn = document.getElementById("doctorRequestOtpBtn");
+  if (btn) btn.disabled = true;
 
   try {
-    const response = await fetch(`${API_BASE}/auth/user/otp/request`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: email,
-        purpose: 'doctor_verification',
-      }),
+    const res = await fetch(`${API_BASE}/auth/user/otp/request`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, purpose: "login" }),
     });
-
-    const data = await response.json();
-    hideLoading('doctorRequestOtpBtn');
-
-    if (response.ok) {
-      document.getElementById('doctorOtpCodeGroup').style.display = 'block';
-      document.getElementById('doctorRequestOtpBtn').style.display = 'none';
-      document.getElementById('doctorVerifyOtpBtn').style.display = 'block';
-      document.getElementById('doctorOtp').focus();
-      errorMsg.textContent = `OTP sent to ${email}. Check your email.`;
-      errorMsg.style.color = 'var(--accent)';
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.success !== false) {
+      document.getElementById("doctorOtpCodeGroup").style.display = "block";
+      document.getElementById("doctorRequestOtpBtn").style.display = "none";
+      document.getElementById("doctorVerifyOtpBtn").style.display  = "block";
+      document.getElementById("doctorOtp")?.focus();
+      if (errEl) { errEl.textContent = `OTP sent to ${email}.`; errEl.style.color = "var(--accent)"; }
+      if (data.dev_otp && errEl) { errEl.textContent += `  [Dev OTP: ${data.dev_otp}]`; }
     } else {
-      errorMsg.textContent = data.detail || 'Failed to send OTP.';
+      if (errEl) errEl.textContent = data.detail || data.message || "Failed to send OTP.";
     }
-  } catch (error) {
-    hideLoading('doctorRequestOtpBtn');
-    errorMsg.textContent = 'Network error. Please try again.';
+  } catch {
+    if (errEl) errEl.textContent = "Network error.";
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
 async function verifyDoctorOtp() {
-  const email = document.getElementById('doctorOtpEmail').value.trim();
-  const otp = document.getElementById('doctorOtp').value.trim();
-  const errorMsg = document.getElementById('doctor-otp-error-msg');
-  errorMsg.textContent = '';
+  const email = (document.getElementById("doctorOtpEmail")?.value || "").trim();
+  const otp   = (document.getElementById("doctorOtp")?.value      || "").trim();
+  const errEl = document.getElementById("doctor-otp-error-msg");
+  if (errEl) errEl.textContent = "";
+  if (!otp || otp.length !== 6) { if (errEl) errEl.textContent = "Enter 6-digit OTP."; return; }
 
-  if (!otp || otp.length !== 6) {
-    errorMsg.textContent = 'Please enter a valid 6-digit OTP.';
-    return;
-  }
-
-  showLoading('doctorVerifyOtpBtn');
+  const btn = document.getElementById("doctorVerifyOtpBtn");
+  if (btn) btn.disabled = true;
 
   try {
-    const response = await fetch(`${API_BASE}/auth/doctor/otp/verify`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: email,
-        otp_code: otp,
-      }),
+    const res = await fetch(`${API_BASE}/auth/doctor/otp/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, otp_code: otp }),
     });
-
-    const data = await response.json();
-    hideLoading('doctorVerifyOtpBtn');
-
-    if (response.ok) {
-      saveAuthToken(data.token, email, 'doctor', 3600);
-      localStorage.setItem('ha_logged_in', 'true');
-      localStorage.setItem('ha_name', email);
-      localStorage.setItem('ha_role', 'doctor');
-
-      setTimeout(() => {
-        window.location.href = 'chat.html';
-      }, 800);
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      localStorage.setItem("ha_logged_in",  "true");
+      localStorage.setItem("ha_role",       "doctor");
+      localStorage.setItem("ha_email",      email);
+      localStorage.setItem("ha_auth_token", data.token || "");
+      setTimeout(() => { window.location.href = "chat.html"; }, 600);
     } else {
-      errorMsg.textContent = data.detail || 'Invalid OTP. Please try again.';
+      if (errEl) errEl.textContent = data.detail || "Invalid OTP.";
     }
-  } catch (error) {
-    hideLoading('doctorVerifyOtpBtn');
-    errorMsg.textContent = 'Network error. Please try again.';
+  } catch {
+    if (errEl) errEl.textContent = "Network error.";
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
-// ─────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
 // ADMIN LOGIN
-// ─────────────────────────────────────────────────────────────────
-
+// ═══════════════════════════════════════════════════════════════
 async function adminLogin() {
-  const pin = document.getElementById('adminPin').value.trim();
-  const errorMsg = document.getElementById('admin-error-msg');
-  errorMsg.textContent = '';
+  const pin   = (document.getElementById("adminPin")?.value || "").trim();
+  const errEl = document.getElementById("admin-error-msg");
+  if (errEl) errEl.textContent = "";
+  if (!pin) { if (errEl) errEl.textContent = "Admin password required."; return; }
 
-  if (!pin || pin.length < 1) {
-    errorMsg.textContent = 'Please enter your admin password.';
-    document.getElementById('adminPin').focus();
-    return;
-  }
-
-  showLoading('adminForm');
+  const btn  = document.querySelector(".admin-login-btn");
+  const text = document.querySelector(".admin-btn-text");
+  const spin = document.querySelector(".admin-loader");
+  if (btn)  btn.disabled = true;
+  if (text) text.style.display = "none";
+  if (spin) spin.style.display = "inline-block";
 
   try {
-    const response = await fetch(`${API_BASE}/auth/admin/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pin: pin }),
+    const res = await fetch(`${API_BASE}/auth/admin/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin }),
     });
-
-    const data = await response.json();
-    hideLoading('adminForm');
-
-    if (response.ok) {
-      saveAuthToken(data.token, data.user_id, data.role, data.expires_in);
-      localStorage.setItem('ha_logged_in', 'true');
-      localStorage.setItem('ha_role', 'admin');
-
-      setTimeout(() => {
-        window.location.href = 'admin.html';
-      }, 800);
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      localStorage.setItem("ha_logged_in",  "true");
+      localStorage.setItem("ha_role",       "admin");
+      localStorage.setItem("ha_auth_token", data.token || "");
+      localStorage.setItem("ha_user_id",    data.user_id || "admin");
+      setTimeout(() => { window.location.href = "admin.html"; }, 600);
     } else {
-      errorMsg.textContent = data.detail || 'Invalid password.';
+      if (errEl) errEl.textContent = data.detail || "Invalid password.";
     }
-  } catch (error) {
-    hideLoading('adminForm');
-    errorMsg.textContent = 'Network error. Please try again.';
+  } catch {
+    if (errEl) errEl.textContent = "Network error.";
+  } finally {
+    if (btn)  btn.disabled = false;
+    if (text) text.style.display = "";
+    if (spin) spin.style.display = "none";
   }
 }
-
-// ─────────────────────────────────────────────────────────────────
-// GOOGLE OAUTH (Placeholder for future integration)
-// ─────────────────────────────────────────────────────────────────
-
-document.addEventListener('DOMContentLoaded', () => {
-  const googleBtn = document.getElementById('googleLoginBtn');
-  if (googleBtn) {
-    googleBtn.addEventListener('click', () => {
-      alert('Google OAuth will be enabled after configuring Google Cloud credentials.');
-    });
-  }
-});
-
-// ─────────────────────────────────────────────────────────────────
-// KEYBOARD SHORTCUTS
-// ─────────────────────────────────────────────────────────────────
-
-document.addEventListener('DOMContentLoaded', () => {
-  // Patient form — Enter key
-  ['name', 'phone', 'location'].forEach((id) => {
-    const el = document.getElementById(id);
-    if (el) {
-      el.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') login();
-      });
-    }
-  });
-
-  // Doctor form — Enter key
-  ['doctorEmail', 'doctorPassword'].forEach((id) => {
-    const el = document.getElementById(id);
-    if (el) {
-      el.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') doctorLogin();
-      });
-    }
-  });
-
-  // Admin form — Enter key
-  const adminPin = document.getElementById('adminPin');
-  if (adminPin) {
-    adminPin.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') adminLogin();
-    });
-  }
-});
-

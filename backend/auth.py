@@ -79,48 +79,53 @@ def generate_otp(length: int = 6) -> str:
     """Generate a random 6-digit OTP."""
     return "".join(secrets.choice(string.digits) for _ in range(length))
 
-def store_otp(db_path: str, email: str, otp_code: str, purpose: str, ttl_minutes: int = 10) -> bool:
-    """Store OTP in database with expiration."""
+def store_otp(db_path: str, email: str, otp_code: str, purpose: str, ttl_minutes: int = 15) -> bool:
+    """Store OTP in database with expiration. Uses local time consistently."""
     try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
-        expires_at = (datetime.utcnow() + timedelta(minutes=ttl_minutes)).isoformat()
+        # Delete any existing OTPs for this email+purpose to prevent stale records
+        cursor.execute("DELETE FROM otp_store WHERE email = ? AND purpose = ?", (email, purpose))
+        # Use local datetime (not UTC) — consistent with verify_otp
+        now = datetime.now()
+        expires_at = (now + timedelta(minutes=ttl_minutes)).isoformat()
         cursor.execute(
             """
             INSERT INTO otp_store (email, otp_code, purpose, expires_at, created_at)
             VALUES (?, ?, ?, ?, ?)
             """,
-            (email, otp_code, purpose, expires_at, datetime.utcnow().isoformat()),
+            (email, otp_code, purpose, expires_at, now.isoformat()),
         )
         conn.commit()
         conn.close()
-        logger.info("OTP stored for email %s, purpose: %s", email, purpose)
+        logger.info("OTP stored for %s purpose=%s expires=%s", email, purpose, expires_at)
         return True
     except Exception as e:
         logger.error("Failed to store OTP: %s", e)
         return False
 
 def verify_otp(db_path: str, email: str, otp_code: str, purpose: str) -> bool:
-    """Verify OTP and check expiration."""
+    """Verify OTP and check expiration. Uses local time consistently."""
     try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
+        now_str = datetime.now().isoformat()
         cursor.execute(
             """
-            SELECT * FROM otp_store
+            SELECT id FROM otp_store
             WHERE email = ? AND otp_code = ? AND purpose = ? AND expires_at > ?
             ORDER BY created_at DESC LIMIT 1
             """,
-            (email, otp_code, purpose, datetime.utcnow().isoformat()),
+            (email, otp_code, purpose, now_str),
         )
         result = cursor.fetchone()
         conn.close()
-        
+
         if result:
-            logger.info("OTP verified for email %s, purpose: %s", email, purpose)
+            logger.info("OTP verified for %s purpose=%s", email, purpose)
             return True
         else:
-            logger.warning("OTP verification failed for email %s", email)
+            logger.warning("OTP verification failed for %s purpose=%s now=%s", email, purpose, now_str)
             return False
     except Exception as e:
         logger.error("OTP verification error: %s", e)

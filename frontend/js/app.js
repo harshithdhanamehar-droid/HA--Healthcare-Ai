@@ -50,10 +50,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
 // ── Logout ────────────────────────────────────────────────────────
 function logout() {
-  localStorage.removeItem("ha_logged_in");
-  localStorage.removeItem("ha_name");
-  localStorage.removeItem("ha_phone");
-  localStorage.removeItem("ha_location");
+  const keysToRemove = ['ha_logged_in','ha_name','ha_phone','ha_location','ha_role',
+                        'ha_auth_token','ha_user_id','ha_email'];
+  keysToRemove.forEach(k => localStorage.removeItem(k));
+  sessionStorage.clear();
   window.location.replace("index.html");
 }
 
