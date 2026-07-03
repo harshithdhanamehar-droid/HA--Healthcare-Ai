@@ -576,11 +576,16 @@ def send_email(to_email: str, subject: str, html_body: str, email_type: str = "g
     gmail_user = os.getenv("GMAIL_USER", "").strip()
     gmail_pass = os.getenv("GMAIL_APP_PASSWORD", "").strip()
     
-    # If credentials not set, log warning and continue
+    # Log configuration status (not actual values for security)
+    logger.info(f"Email send attempt: GMAIL_USER exists: {bool(gmail_user)}, GMAIL_APP_PASSWORD exists: {bool(gmail_pass)}")
+    
+    # If credentials not set, log error and return False
     if not gmail_user or not gmail_pass:
-        error_msg = "GMAIL_USER or GMAIL_APP_PASSWORD not configured"
-        logger.warning("Email disabled: %s", error_msg)
-        log_email(to_email, email_type, subject, "skipped", error_msg)
+        if not gmail_user:
+            logger.error(f"SMTP ERROR: GMAIL_USER environment variable not configured")
+        if not gmail_pass:
+            logger.error(f"SMTP ERROR: GMAIL_APP_PASSWORD environment variable not configured")
+        log_email(to_email, email_type, subject, "skipped", "Missing SMTP credentials")
         return False
     
     try:
@@ -593,21 +598,30 @@ def send_email(to_email: str, subject: str, html_body: str, email_type: str = "g
         # Add HTML body
         part = MIMEText(html_body, "html")
         msg.attach(part)
-        
-        # Build message with display name
-        msg["From"] = f"HA! Healthcare AI <{gmail_user}>"
 
         # Try port 465 SSL first, then fall back to port 587 STARTTLS
         sent = False
         last_error = None
+        
+        # Attempt 1: Port 465 with SSL
         try:
             with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
                 server.login(gmail_user, gmail_pass)
                 server.sendmail(gmail_user, to_email, msg.as_string())
             sent = True
-        except Exception as e465:
-            last_error = e465
-            logger.warning(f"Port 465 failed ({e465}), trying port 587 STARTTLS...")
+            logger.info(f"Email sent successfully via port 465 to {to_email}")
+        except smtplib.SMTPAuthenticationError as e:
+            last_error = e
+            logger.error(f"Port 465 - AUTHENTICATION FAILED: {type(e).__name__}: {str(e)[:100]}")
+        except smtplib.SMTPException as e:
+            last_error = e
+            logger.error(f"Port 465 - SMTP ERROR: {type(e).__name__}: {str(e)[:100]}")
+        except Exception as e:
+            last_error = e
+            logger.error(f"Port 465 - CONNECTION ERROR: {type(e).__name__}: {str(e)[:100]}")
+        
+        # Attempt 2: Port 587 with STARTTLS
+        if not sent:
             try:
                 with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
                     server.ehlo()
@@ -615,20 +629,29 @@ def send_email(to_email: str, subject: str, html_body: str, email_type: str = "g
                     server.login(gmail_user, gmail_pass)
                     server.sendmail(gmail_user, to_email, msg.as_string())
                 sent = True
-            except Exception as e587:
-                last_error = e587
+                logger.info(f"Email sent successfully via port 587 to {to_email}")
+            except smtplib.SMTPAuthenticationError as e:
+                last_error = e
+                logger.error(f"Port 587 - AUTHENTICATION FAILED: {type(e).__name__}: {str(e)[:100]}")
+            except smtplib.SMTPException as e:
+                last_error = e
+                logger.error(f"Port 587 - SMTP ERROR: {type(e).__name__}: {str(e)[:100]}")
+            except Exception as e:
+                last_error = e
+                logger.error(f"Port 587 - CONNECTION ERROR: {type(e).__name__}: {str(e)[:100]}")
 
         if sent:
-            logger.info(f"Email sent to {to_email}: {subject}")
             log_email(to_email, email_type, subject, "sent")
             return True
         else:
-            raise last_error
+            logger.error(f"Email send failed to {to_email}: {type(last_error).__name__}")
+            log_email(to_email, email_type, subject, "failed", f"{type(last_error).__name__}")
+            return False
 
     except Exception as e:
-        error_msg = str(e)
-        logger.error(f"Email send failed to {to_email}: {error_msg}")
-        log_email(to_email, email_type, subject, "failed", error_msg)
+        error_type = type(e).__name__
+        logger.error(f"Email send exception: {error_type}")
+        log_email(to_email, email_type, subject, "failed", error_type)
         return False
 
 def send_appointment_confirmation(appointment: dict):
@@ -2167,10 +2190,11 @@ def user_request_otp(data: UserRequestOTPRequest):
                 "email": data.email,
                 "dev_otp": otp_code,
             }
-        logger.warning("OTP email failed but OTP was stored: %s", data.email)
+        # In production, log the real error but return generic message to user
+        logger.error("Failed to send OTP email to %s. Check GMAIL_USER, GMAIL_APP_PASSWORD, and SMTP configuration. OTP was stored in database.", data.email)
         return {
             "success": False,
-            "message": "Email delivery failed. Configure GMAIL_USER and GMAIL_APP_PASSWORD in .env",
+            "message": "Unable to send verification email. Please try again later.",
             "email": data.email,
         }
     
@@ -2311,7 +2335,8 @@ def user_resend_otp(data: UserRequestOTPRequest):
     if not sent:
         if env == "development":
             return {"success": True, "message": f"[DEV] OTP: {otp_code}", "dev_otp": otp_code}
-        return {"success": False, "message": "Email delivery failed. Check SMTP configuration."}
+        logger.error("Failed to resend OTP email to %s. Check GMAIL_USER, GMAIL_APP_PASSWORD, and SMTP configuration. OTP was stored in database.", data.email)
+        return {"success": False, "message": "Unable to send verification email. Please try again later."}
     return {"success": True, "message": f"New OTP sent to {data.email}"}
 
 @app.post("/auth/user/login")
