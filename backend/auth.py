@@ -23,10 +23,10 @@ import requests
 logger = logging.getLogger("ha_healthcare.auth")
 
 # ─── CONFIGURATION ───────────────────────────────────────────────────────────
-JWT_SECRET = os.getenv("JWT_SECRET", "your-super-secret-jwt-key-change-in-production-12345")
+JWT_SECRET = os.getenv("JWT_SECRET", "")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "1440"))
-ADMIN_PIN = os.getenv("ADMIN_PIN", "admin2024")
+ADMIN_PIN = os.getenv("ADMIN_PIN", "")
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")

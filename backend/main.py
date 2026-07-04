@@ -3,6 +3,7 @@ import logging
 import os
 import sqlite3
 import uuid
+import socket
 from datetime import datetime
 from typing import Optional, List
 
@@ -292,6 +293,14 @@ def run_migrations():
 init_database()
 run_migrations()
 
+# ─── STARTUP CONFIGURATION CHECK ─────────────────────────────────────
+logger.info("=== STARTUP CONFIGURATION CHECK ===")
+logger.info(f"GOOGLE_CLIENT_ID configured: {bool(os.getenv('GOOGLE_CLIENT_ID', '').strip())}")
+logger.info(f"GOOGLE_CLIENT_SECRET configured: {bool(os.getenv('GOOGLE_CLIENT_SECRET', '').strip())}")
+logger.info(f"GMAIL_USER configured: {bool(os.getenv('GMAIL_USER', '').strip())}")
+logger.info(f"GMAIL_APP_PASSWORD configured: {bool(os.getenv('GMAIL_APP_PASSWORD', '').strip())}")
+logger.info("=== END STARTUP CONFIGURATION CHECK ===")
+
 def migrate_doctors_to_database():
     """Migrate hardcoded DOCTORS list to SQLite database (one-time operation)."""
     try:
@@ -577,14 +586,15 @@ def send_email(to_email: str, subject: str, html_body: str, email_type: str = "g
     gmail_pass = os.getenv("GMAIL_APP_PASSWORD", "").strip()
     
     # Log configuration status (not actual values for security)
-    logger.info(f"Email send attempt: GMAIL_USER exists: {bool(gmail_user)}, GMAIL_APP_PASSWORD exists: {bool(gmail_pass)}")
+    logger.info(f"GMAIL_USER configured: {bool(gmail_user)}")
+    logger.info(f"GMAIL_APP_PASSWORD configured: {bool(gmail_pass)}")
     
     # If credentials not set, log error and return False
     if not gmail_user or not gmail_pass:
         if not gmail_user:
-            logger.error(f"SMTP ERROR: GMAIL_USER environment variable not configured")
+            logger.error(f"SMTP configuration error: GMAIL_USER environment variable not set")
         if not gmail_pass:
-            logger.error(f"SMTP ERROR: GMAIL_APP_PASSWORD environment variable not configured")
+            logger.error(f"SMTP configuration error: GMAIL_APP_PASSWORD environment variable not set")
         log_email(to_email, email_type, subject, "skipped", "Missing SMTP credentials")
         return False
     
@@ -604,53 +614,71 @@ def send_email(to_email: str, subject: str, html_body: str, email_type: str = "g
         last_error = None
         
         # Attempt 1: Port 465 with SSL
+        logger.info(f"Attempting SMTP_SSL on port 465...")
         try:
             with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
+                logger.info(f"SMTP_SSL connection established")
+                logger.info(f"Attempting SMTP login...")
                 server.login(gmail_user, gmail_pass)
+                logger.info(f"SMTP login successful")
+                logger.info(f"Sending email...")
                 server.sendmail(gmail_user, to_email, msg.as_string())
+                logger.info(f"Email sent successfully via port 465")
             sent = True
-            logger.info(f"Email sent successfully via port 465 to {to_email}")
         except smtplib.SMTPAuthenticationError as e:
             last_error = e
-            logger.error(f"Port 465 - AUTHENTICATION FAILED: {type(e).__name__}: {str(e)[:100]}")
+            logger.error(f"SMTP authentication failed on port 465: {type(e).__name__}: {e}")
         except smtplib.SMTPException as e:
             last_error = e
-            logger.error(f"Port 465 - SMTP ERROR: {type(e).__name__}: {str(e)[:100]}")
+            logger.error(f"SMTP error on port 465: {type(e).__name__}: {e}")
+        except socket.timeout as e:
+            last_error = e
+            logger.error(f"Timeout on port 465: {type(e).__name__}: {e}")
         except Exception as e:
             last_error = e
-            logger.error(f"Port 465 - CONNECTION ERROR: {type(e).__name__}: {str(e)[:100]}")
+            logger.error(f"Connection error on port 465: {type(e).__name__}: {e}")
         
         # Attempt 2: Port 587 with STARTTLS
         if not sent:
+            logger.info(f"Attempting SMTP STARTTLS on port 587...")
             try:
                 with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
+                    logger.info(f"SMTP connection established")
+                    logger.info(f"Sending EHLO...")
                     server.ehlo()
+                    logger.info(f"Starting TLS...")
                     server.starttls()
+                    logger.info(f"Attempting SMTP login...")
                     server.login(gmail_user, gmail_pass)
+                    logger.info(f"SMTP login successful")
+                    logger.info(f"Sending email...")
                     server.sendmail(gmail_user, to_email, msg.as_string())
+                    logger.info(f"Email sent successfully via port 587")
                 sent = True
-                logger.info(f"Email sent successfully via port 587 to {to_email}")
             except smtplib.SMTPAuthenticationError as e:
                 last_error = e
-                logger.error(f"Port 587 - AUTHENTICATION FAILED: {type(e).__name__}: {str(e)[:100]}")
+                logger.error(f"SMTP authentication failed on port 587: {type(e).__name__}: {e}")
             except smtplib.SMTPException as e:
                 last_error = e
-                logger.error(f"Port 587 - SMTP ERROR: {type(e).__name__}: {str(e)[:100]}")
+                logger.error(f"SMTP error on port 587: {type(e).__name__}: {e}")
+            except socket.timeout as e:
+                last_error = e
+                logger.error(f"Timeout on port 587: {type(e).__name__}: {e}")
             except Exception as e:
                 last_error = e
-                logger.error(f"Port 587 - CONNECTION ERROR: {type(e).__name__}: {str(e)[:100]}")
+                logger.error(f"Connection error on port 587: {type(e).__name__}: {e}")
 
         if sent:
             log_email(to_email, email_type, subject, "sent")
             return True
         else:
-            logger.error(f"Email send failed to {to_email}: {type(last_error).__name__}")
+            logger.error(f"Email send failed after all SMTP attempts. Last error: {type(last_error).__name__}")
             log_email(to_email, email_type, subject, "failed", f"{type(last_error).__name__}")
             return False
 
     except Exception as e:
         error_type = type(e).__name__
-        logger.error(f"Email send exception: {error_type}")
+        logger.error(f"Unexpected error in send_email: {error_type}: {e}")
         log_email(to_email, email_type, subject, "failed", error_type)
         return False
 
@@ -2042,8 +2070,9 @@ def toggle_doctor_active_status(doctor_id: str, data: dict):
 @app.get("/auth/google/status")
 def google_status():
     """Check if Google OAuth is configured."""
-    client_id = os.getenv("GOOGLE_CLIENT_ID", "")
-    is_configured = bool(client_id and client_id != "placeholder-google-client-id-replace-me")
+    client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+    is_configured = bool(client_id)
+    logger.info(f"GOOGLE_CLIENT_ID configured: {is_configured}")
     return {"configured": is_configured, "client_id": client_id if is_configured else ""}
 
 @app.post("/auth/user/google")
@@ -2056,8 +2085,9 @@ def user_login_google(data: UserLoginGoogleRequest):
     from google.oauth2 import id_token as google_id_token
     from google.auth.transport import requests as google_requests
 
-    g_client_id = os.getenv("GOOGLE_CLIENT_ID", "")
-    if not g_client_id or g_client_id == "placeholder-google-client-id-replace-me":
+    g_client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+    logger.info(f"GOOGLE_CLIENT_ID configured: {bool(g_client_id)}")
+    if not g_client_id:
         raise HTTPException(status_code=501, detail="Google OAuth not configured. Set GOOGLE_CLIENT_ID in .env")
 
     # Verify the ID token issued by Google
