@@ -57,11 +57,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const adminPin = document.getElementById("adminPin");
   if (adminPin) adminPin.addEventListener("keydown", e => { if (e.key === "Enter") adminLogin(); });
 
-  // Google OAuth — check backend configuration first
-  const googleBtn = document.getElementById("googleLoginBtn");
-  if (googleBtn) {
-    initGoogleLogin();
-  }
+  // Google OAuth — initialize
+  initGoogleLogin();
 });
 
 // ── Tab switching ─────────────────────────────────────────────────
@@ -222,26 +219,18 @@ async function resendPatientOtp() {
 
 // ── Google Login ──────────────────────────────────────────────────
 async function initGoogleLogin() {
-  const googleBtn = document.getElementById("googleLoginBtn");
-  if (!googleBtn) return;
-
-  googleBtn.disabled = true;
-
   try {
     const res = await fetch(`${API_BASE}/auth/google/status`);
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok || !data.configured || !data.client_id) {
-      googleBtn.disabled = true;
-      googleBtn.title = "Google login is not configured.";
       return;
     }
 
     _googleClientId = data.client_id;
     initGoogleIdentity();
   } catch (err) {
-    googleBtn.disabled = true;
-    googleBtn.title = "Google login is unavailable.";
+    // Silently fail if Google config check fails
   }
 }
 
@@ -255,7 +244,7 @@ function initGoogleIdentity() {
   });
 
   google.accounts.id.renderButton(
-    document.getElementById("googleLoginBtn"),
+    document.getElementById("googleButtonContainer"),
     { type: "standard", size: "large", text: "signin_with" }
   );
 
