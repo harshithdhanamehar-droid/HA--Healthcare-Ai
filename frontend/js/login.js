@@ -22,15 +22,8 @@ let _pendingUserId  = "";   // filled after OTP verify, used for profile setup
 let _googleClientId = "";
 let _googleReady    = false;
 
-// ── TRACE COUNTERS (debugging) ────────────────────────────
-let _trace_init = 0;
-let _trace_prompt = 0;
-let _trace_credential = 0;
-
 // ── DOM ready ─────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
-  console.log("=== LOGIN PAGE INITIALIZED ===");
-  
   // Tab switching
   document.querySelectorAll(".auth-tab").forEach(tab => {
     tab.addEventListener("click", () => switchAuthTab(tab.dataset.tab));
@@ -42,7 +35,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (el) {
       el.addEventListener("keydown", e => { 
         if (e.key === "Enter") {
-          console.log(`Enter pressed on ${id}`);
           handlePatientLogin();
         }
       });
@@ -52,7 +44,6 @@ document.addEventListener("DOMContentLoaded", () => {
   if (otpInput) {
     otpInput.addEventListener("keydown", e => { 
       if (e.key === "Enter") {
-        console.log("Enter pressed on otpCode");
         verifyPatientOtp();
       }
     });
@@ -69,7 +60,6 @@ document.addEventListener("DOMContentLoaded", () => {
   // Google OAuth — check backend configuration first
   const googleBtn = document.getElementById("googleLoginBtn");
   if (googleBtn) {
-    googleBtn.addEventListener("click", handleGoogleLogin);
     initGoogleLogin();
   }
 });
@@ -199,11 +189,8 @@ function stopOtpCountdown() {
 // ── Resend OTP ────────────────────────────────────────────────────
 async function resendPatientOtp() {
   clearError("otp-error-msg");
-  console.log("=== RESEND OTP START ===");
-  console.log("_pendingEmail:", _pendingEmail);
   
   if (!_pendingEmail) { 
-    console.log("No _pendingEmail - showing error");
     setError("otp-error-msg", "No email to resend OTP to."); 
     return; 
   }
@@ -212,7 +199,6 @@ async function resendPatientOtp() {
   if (resendBtn) resendBtn.disabled = true;
 
   try {
-    console.log("Calling /auth/user/otp/resend for:", _pendingEmail);
     const data = await apiPost("/auth/user/otp/resend", { email: _pendingEmail, purpose: "login" });
     if (data.success === false) {
       setError("otp-error-msg", data.message || "Failed to resend OTP.");
@@ -223,13 +209,11 @@ async function resendPatientOtp() {
     const otpInput = document.getElementById("otpCode");
     if (otpInput) otpInput.value = "";
     
-    console.log("OTP resent successfully");
     setError("otp-error-msg", "New OTP sent to your email.", "var(--accent-green, #10b981)");
 
     // Restart countdown
     startOtpCountdown();
   } catch (err) {
-    console.error("Resend OTP error:", err.message);
     setError("otp-error-msg", err.message || "Failed to resend OTP.");
   } finally {
     if (resendBtn) resendBtn.disabled = false;
@@ -242,12 +226,10 @@ async function initGoogleLogin() {
   if (!googleBtn) return;
 
   googleBtn.disabled = true;
-  googleBtn.title = "Checking Google login...";
 
   try {
     const res = await fetch(`${API_BASE}/auth/google/status`);
     const data = await res.json().catch(() => ({}));
-    console.log("Google OAuth status:", { status: res.status, body: data });
 
     if (!res.ok || !data.configured || !data.client_id) {
       googleBtn.disabled = true;
@@ -255,116 +237,46 @@ async function initGoogleLogin() {
       return;
     }
 
-    // Google is configured — initialize Google Identity Services
     _googleClientId = data.client_id;
-    googleBtn.disabled = false;
-    googleBtn.title = "Continue with Google";
     initGoogleIdentity();
   } catch (err) {
-    console.warn("Google OAuth status check failed:", err);
     googleBtn.disabled = true;
     googleBtn.title = "Google login is unavailable.";
   }
 }
 
 function initGoogleIdentity() {
-  if (_googleReady) {
-    console.warn("initGoogleIdentity already called - skipping");
-    return true;
-  }
-  if (!_googleClientId) {
-    console.warn("initGoogleIdentity: _googleClientId not set");
-    return false;
-  }
-  if (typeof google === "undefined" || !google.accounts?.id) {
-    console.warn("initGoogleIdentity: Google SDK not loaded");
-    return false;
-  }
+  if (_googleReady) return;
+  if (!_googleClientId || typeof google === "undefined" || !google.accounts?.id) return;
 
-  _trace_init++;
-  console.log(`[TRACE] google.accounts.id.initialize() call #${_trace_init}`);
-  
   google.accounts.id.initialize({
     client_id: _googleClientId,
     callback: handleGoogleCredential,
-    auto_select: false,
-    use_fedcm_for_prompt: false,
   });
+
+  google.accounts.id.renderButton(
+    document.getElementById("googleLoginBtn"),
+    { type: "standard", size: "large", text: "signin_with" }
+  );
+
   _googleReady = true;
-  console.log(`[TRACE] initialize() complete. _googleReady = true`);
-  return true;
 }
 
-async function handleGoogleLogin() {
-  clearError("error-msg");
-  const googleBtn = document.getElementById("googleLoginBtn");
-
-  if (!_googleClientId) {
-    setError("error-msg", "Google login is not configured. Please use email/OTP login.");
-    return;
-  }
-
-  // Don't reinitialize - already done in initGoogleLogin
-  if (!_googleReady) {
-    setError("error-msg", "Google Sign-In is still loading. Please try again.");
-    return;
-  }
-
-  console.log("=== GOOGLE LOGIN BUTTON CLICKED ===");
-  
-  if (googleBtn) googleBtn.disabled = true;
-  
-  _trace_prompt++;
-  console.log(`[TRACE] google.accounts.id.prompt() call #${_trace_prompt}`);
-  
-  google.accounts.id.prompt((notification) => {
-    console.log("Google Prompt notification:", notification);
-    
-    if (notification.isNotDisplayed()) {
-      console.log("Prompt not displayed - trying renderButton fallback");
-      if (googleBtn) googleBtn.disabled = false;
-    } else if (notification.isSkippedMoment()) {
-      console.log("Prompt skipped by user");
-      if (googleBtn) googleBtn.disabled = false;
-    } else if (notification.isDismissedMoment()) {
-      console.log("Prompt dismissed by user");
-      if (googleBtn) googleBtn.disabled = false;
-    }
-  });
-}
-
-// ── Google credential callback ────────────────────────────────────
 async function handleGoogleCredential(response) {
   clearError("error-msg");
-  _trace_credential++;
-  console.log(`[TRACE] handleGoogleCredential() call #${_trace_credential}`);
-  
-  const googleBtn = document.getElementById("googleLoginBtn");
-  
+
   if (!response || !response.credential) {
-    console.error("handleGoogleCredential: No credential in response");
     setError("error-msg", "Google sign-in failed. Please try again.");
-    if (googleBtn) googleBtn.disabled = false;
     return;
   }
 
   try {
-    console.log("Sending credential to /auth/user/google");
     const data = await apiPost("/auth/user/google", {
       token: response.credential,
     });
-    
-    console.log("Google login backend response:", data);
-    console.log("=== GOOGLE LOGIN SUCCESS ===");
-    if (data.token) {
-      console.log("JWT received, redirecting to dashboard");
-    }
     afterLogin(data);
   } catch (err) {
-    console.error("Google login error:", err);
     setError("error-msg", "Google sign-in failed. Please try again.");
-  } finally {
-    if (googleBtn) googleBtn.disabled = false;
   }
 }
 
@@ -373,11 +285,6 @@ async function handlePatientLogin() {
   const email    = (document.getElementById("userEmail")?.value    || "").trim();
   const password = (document.getElementById("userPassword")?.value || "").trim();
   clearError("error-msg");
-
-  console.log("=== PATIENT LOGIN START ===");
-  console.log("Email:", email);
-  console.log("Has password:", !!password);
-  console.log("Has _pendingEmail:", !!_pendingEmail);
 
   if (!email || !email.includes("@")) {
     setError("error-msg", "Please enter a valid email address.");
@@ -390,13 +297,11 @@ async function handlePatientLogin() {
   try {
     if (password) {
       // ── Password login ────────────────────────────────────────
-      console.log("Attempting password login");
       const data = await apiPost("/auth/user/login", { email, password });
       setBtnLoading("continueBtn", "btn-text", "loader", false);
       afterLogin(data);
     } else {
       // ── OTP login — send OTP ──────────────────────────────────
-      console.log("No password - requesting OTP");
       const data = await apiPost("/auth/user/otp/request", { email, purpose: "login" });
       setBtnLoading("continueBtn", "btn-text", "loader", false);
 
@@ -406,7 +311,6 @@ async function handlePatientLogin() {
       }
 
       _pendingEmail = email;
-      console.log("OTP requested, _pendingEmail set to:", email);
 
       // Show OTP step
       document.getElementById("step-credentials").style.display = "none";
@@ -425,7 +329,6 @@ async function handlePatientLogin() {
     }
   } catch (err) {
     setBtnLoading("continueBtn", "btn-text", "loader", false);
-    console.error("handlePatientLogin error:", err.message);
     setError("error-msg", err.message);
   }
 }
@@ -435,11 +338,6 @@ async function verifyPatientOtp() {
   const otp = (document.getElementById("otpCode")?.value || "").trim();
   const email = _pendingEmail || (document.getElementById("userEmail")?.value || "").trim();
   clearError("otp-error-msg");
-
-  console.log("=== VERIFY OTP START ===");
-  console.log("_pendingEmail:", _pendingEmail);
-  console.log("email input value:", document.getElementById("userEmail")?.value);
-  console.log("final email:", email);
 
   if (!email) {
     setError("otp-error-msg", "Email session expired. Please request a new OTP.");
@@ -459,9 +357,6 @@ async function verifyPatientOtp() {
 
   try {
     const payload = { email, otp_code: otp };
-    console.log("=== OTP VERIFY REQUEST ===");
-    console.log("Payload:", payload);
-    console.log("Endpoint:", `${API_BASE}/auth/user/otp/verify`);
 
     const res = await fetch(`${API_BASE}/auth/user/otp/verify`, {
       method: "POST",
@@ -471,14 +366,7 @@ async function verifyPatientOtp() {
     const rawBody = await res.text();
     const data = rawBody ? JSON.parse(rawBody) : {};
 
-    console.log("=== OTP VERIFY RESPONSE ===");
-    console.log("Status:", res.status);
-    console.log("OK:", res.ok);
-    console.log("Raw body:", rawBody);
-    console.log("Parsed data:", data);
-
     if (!res.ok) {
-      console.log("Response NOT OK - throwing error");
       throw Object.assign(
         new Error(data.detail || data.message || `OTP verification failed (HTTP ${res.status})`),
         { status: res.status, body: data, rawBody }
@@ -497,23 +385,11 @@ async function verifyPatientOtp() {
     if (otpField) otpField.value = "";
     
     stopOtpCountdown();
-    console.log("OTP verification succeeded - calling afterLogin");
     afterLogin(data);
   } catch (err) {
-    console.log("=== OTP VERIFY CATCH BLOCK ===");
-    console.log("Error message:", err.message);
-    console.log("Error status:", err.status);
-    console.log("Error response:", err.body);
-    console.log("NOT calling any OTP request function from here");
-    
     if (otpBtn)    otpBtn.disabled = false;
     if (otpLoader) otpLoader.style.display = "none";
-    console.error("Patient OTP verify failed:", {
-      status: err.status || null,
-      response: err.rawBody || err.body || err.message,
-    });
     setError("otp-error-msg", apiErrorMessage(err, "Invalid or expired OTP. Please request a new one."));
-    console.log("=== VERIFY OTP END (ERROR) ===");
   }
 }
 
