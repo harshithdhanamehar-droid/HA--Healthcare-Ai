@@ -304,7 +304,8 @@ async function handleGoogleLogin() {
     return;
   }
 
-  if (!initGoogleIdentity()) {
+  // Don't reinitialize - already done in initGoogleLogin
+  if (!_googleReady) {
     setError("error-msg", "Google Sign-In is still loading. Please try again.");
     return;
   }
@@ -320,7 +321,7 @@ async function handleGoogleLogin() {
     console.log("Google Prompt notification:", notification);
     
     if (notification.isNotDisplayed()) {
-      console.log("Prompt not displayed - user may have authenticated or dismissed");
+      console.log("Prompt not displayed - trying renderButton fallback");
       if (googleBtn) googleBtn.disabled = false;
     } else if (notification.isSkippedMoment()) {
       console.log("Prompt skipped by user");

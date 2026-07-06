@@ -620,25 +620,46 @@ def send_email(to_email: str, subject: str, html_body: str, email_type: str = "g
             sent = True
         except smtplib.SMTPAuthenticationError as e:
             last_error = e
-            logger.error(f"SMTP AUTHENTICATION ERROR port 465: {str(e)}")
+            logger.error(f"SMTP AUTHENTICATION ERROR port 465")
+            logger.error(f"  Exception class: {type(e).__name__}")
+            logger.error(f"  repr: {repr(e)}")
+            logger.error(f"  str: {str(e)}")
         except smtplib.SMTPServerDisconnected as e:
             last_error = e
-            logger.error(f"SMTP SERVER DISCONNECTED port 465: {str(e)}")
+            logger.error(f"SMTP SERVER DISCONNECTED port 465")
+            logger.error(f"  Exception class: {type(e).__name__}")
+            logger.error(f"  repr: {repr(e)}")
+            logger.error(f"  str: {str(e)}")
         except smtplib.SMTPConnectError as e:
             last_error = e
-            logger.error(f"SMTP CONNECT ERROR port 465: {str(e)}")
+            logger.error(f"SMTP CONNECT ERROR port 465")
+            logger.error(f"  Exception class: {type(e).__name__}")
+            logger.error(f"  repr: {repr(e)}")
+            logger.error(f"  str: {str(e)}")
         except smtplib.SMTPException as e:
             last_error = e
-            logger.error(f"SMTP EXCEPTION port 465: {str(e)}")
+            logger.error(f"SMTP EXCEPTION port 465")
+            logger.error(f"  Exception class: {type(e).__name__}")
+            logger.error(f"  repr: {repr(e)}")
+            logger.error(f"  str: {str(e)}")
         except socket.timeout as e:
             last_error = e
-            logger.error(f"SOCKET TIMEOUT port 465: {str(e)}")
+            logger.error(f"SOCKET TIMEOUT port 465")
+            logger.error(f"  Exception class: {type(e).__name__}")
+            logger.error(f"  repr: {repr(e)}")
+            logger.error(f"  str: {str(e)}")
         except socket.gaierror as e:
             last_error = e
-            logger.error(f"SOCKET GAIERROR port 465: {str(e)}")
+            logger.error(f"SOCKET GAIERROR port 465 (DNS/network)")
+            logger.error(f"  Exception class: {type(e).__name__}")
+            logger.error(f"  repr: {repr(e)}")
+            logger.error(f"  str: {str(e)}")
         except Exception as e:
             last_error = e
-            logger.error(f"EXCEPTION port 465: {type(e).__name__}: {str(e)}")
+            logger.error(f"EXCEPTION port 465")
+            logger.error(f"  Exception class: {type(e).__name__}")
+            logger.error(f"  repr: {repr(e)}")
+            logger.error(f"  str: {str(e)}")
         
         # Attempt 2: Port 587 with STARTTLS
         if not sent:
@@ -656,37 +677,63 @@ def send_email(to_email: str, subject: str, html_body: str, email_type: str = "g
                 sent = True
             except smtplib.SMTPAuthenticationError as e:
                 last_error = e
-                logger.error(f"SMTP AUTHENTICATION ERROR port 587: {str(e)}")
+                logger.error(f"SMTP AUTHENTICATION ERROR port 587")
+                logger.error(f"  Exception class: {type(e).__name__}")
+                logger.error(f"  repr: {repr(e)}")
+                logger.error(f"  str: {str(e)}")
             except smtplib.SMTPServerDisconnected as e:
                 last_error = e
-                logger.error(f"SMTP SERVER DISCONNECTED port 587: {str(e)}")
+                logger.error(f"SMTP SERVER DISCONNECTED port 587")
+                logger.error(f"  Exception class: {type(e).__name__}")
+                logger.error(f"  repr: {repr(e)}")
+                logger.error(f"  str: {str(e)}")
             except smtplib.SMTPConnectError as e:
                 last_error = e
-                logger.error(f"SMTP CONNECT ERROR port 587: {str(e)}")
+                logger.error(f"SMTP CONNECT ERROR port 587")
+                logger.error(f"  Exception class: {type(e).__name__}")
+                logger.error(f"  repr: {repr(e)}")
+                logger.error(f"  str: {str(e)}")
             except smtplib.SMTPException as e:
                 last_error = e
-                logger.error(f"SMTP EXCEPTION port 587: {str(e)}")
+                logger.error(f"SMTP EXCEPTION port 587")
+                logger.error(f"  Exception class: {type(e).__name__}")
+                logger.error(f"  repr: {repr(e)}")
+                logger.error(f"  str: {str(e)}")
             except socket.timeout as e:
                 last_error = e
-                logger.error(f"SOCKET TIMEOUT port 587: {str(e)}")
+                logger.error(f"SOCKET TIMEOUT port 587")
+                logger.error(f"  Exception class: {type(e).__name__}")
+                logger.error(f"  repr: {repr(e)}")
+                logger.error(f"  str: {str(e)}")
             except socket.gaierror as e:
                 last_error = e
-                logger.error(f"SOCKET GAIERROR port 587: {str(e)}")
+                logger.error(f"SOCKET GAIERROR port 587 (DNS/network)")
+                logger.error(f"  Exception class: {type(e).__name__}")
+                logger.error(f"  repr: {repr(e)}")
+                logger.error(f"  str: {str(e)}")
             except Exception as e:
                 last_error = e
-                logger.error(f"EXCEPTION port 587: {type(e).__name__}: {str(e)}")
+                logger.error(f"EXCEPTION port 587")
+                logger.error(f"  Exception class: {type(e).__name__}")
+                logger.error(f"  repr: {repr(e)}")
+                logger.error(f"  str: {str(e)}")
 
         if sent:
             log_email(to_email, email_type, subject, "sent")
             return True
         else:
-            logger.error(f"SMTP FAILED: Could not send email after both attempts. Last error: {type(last_error).__name__}: {str(last_error)}")
+            logger.error(f"SMTP FAILED: All attempts exhausted")
+            logger.error(f"  Last error class: {type(last_error).__name__}")
+            logger.error(f"  Last error repr: {repr(last_error)}")
+            logger.error(f"  Last error str: {str(last_error)}")
             log_email(to_email, email_type, subject, "failed", f"{type(last_error).__name__}")
             return False
 
     except Exception as e:
         error_type = type(e).__name__
-        logger.error(f"UNEXPECTED ERROR in send_email: {error_type}: {str(e)}")
+        logger.error(f"UNEXPECTED ERROR in send_email: {error_type}")
+        logger.error(f"  repr: {repr(e)}")
+        logger.error(f"  str: {str(e)}")
         log_email(to_email, email_type, subject, "failed", error_type)
         return False
 
