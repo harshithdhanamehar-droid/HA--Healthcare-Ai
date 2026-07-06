@@ -204,7 +204,7 @@ def init_database():
             )
         """)
 
-        # Email Logs (SMTP failure tracking)
+        # Email Logs (email delivery tracking)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS email_logs (
                 id               INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -297,8 +297,8 @@ run_migrations()
 logger.info("=== STARTUP CONFIGURATION CHECK ===")
 logger.info(f"GOOGLE_CLIENT_ID configured: {bool(os.getenv('GOOGLE_CLIENT_ID', '').strip())}")
 logger.info(f"GOOGLE_CLIENT_SECRET configured: {bool(os.getenv('GOOGLE_CLIENT_SECRET', '').strip())}")
-logger.info(f"GMAIL_USER configured: {bool(os.getenv('GMAIL_USER', '').strip())}")
-logger.info(f"GMAIL_APP_PASSWORD configured: {bool(os.getenv('GMAIL_APP_PASSWORD', '').strip())}")
+logger.info(f"RESEND_API_KEY configured: {bool(os.getenv('RESEND_API_KEY', '').strip())}")
+logger.info(f"FROM_EMAIL configured: {bool(os.getenv('FROM_EMAIL', '').strip())}")
 logger.info("=== END STARTUP CONFIGURATION CHECK ===")
 
 def migrate_doctors_to_database():
@@ -556,10 +556,8 @@ def call_ai(prompt: str, system_prompt: str = "") -> str:
     except Exception as e:
         return f"⚠️ AI Error: {str(e)}"
 
-# ─── SMTP EMAIL SERVICE ──────────────────────────────────────────────────────
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+
+# ─── EMAIL SERVICE ────────────────────────────────────────────────────────
 
 def log_email(recipient: str, email_type: str, subject: str, status: str, error: str = None):
     """Log email attempt to database for audit trail."""
@@ -578,64 +576,49 @@ def log_email(recipient: str, email_type: str, subject: str, status: str, error:
 
 def send_email(to_email: str, subject: str, html_body: str, email_type: str = "general") -> bool:
     """
-    Send email via Gmail SMTP using port 587 (STARTTLS).
+    Send email via Resend Email API.
     Returns True if sent, False if failed.
     """
-    gmail_user = os.getenv("GMAIL_USER", "").strip()
-    gmail_pass = os.getenv("GMAIL_APP_PASSWORD", "").strip()
+    from resend import Resend
     
-    if not gmail_user or not gmail_pass:
-        logger.error("SMTP: Missing credentials")
+    resend_api_key = os.getenv("RESEND_API_KEY", "").strip()
+    from_email = os.getenv("FROM_EMAIL", "").strip()
+    
+    if not resend_api_key or not from_email:
+        logger.error("Resend: Missing API key or FROM_EMAIL")
         return False
     
-    max_retries = 3
-    retry_delay = 2
-    
-    for attempt in range(1, max_retries + 1):
-        try:
-            logger.info(f"STEP 1: send_email entered")
-            
-            from email.message import EmailMessage
-            msg = EmailMessage()
-            msg['Subject'] = subject
-            msg['From'] = f"HA! Healthcare AI <{gmail_user}>"
-            msg['To'] = to_email
-            msg.set_content(html_body, subtype='html')
-            
-            logger.info(f"STEP 2: MIME message created - To: {to_email}, Subject: {subject[:50]}")
-            
-            logger.info(f"STEP 3: Connecting to smtp.gmail.com:587")
-            smtp = smtplib.SMTP("smtp.gmail.com", 587, timeout=30)
-            
-            logger.info(f"STEP 4: SMTP connection established")
-            smtp.ehlo()
-            smtp.starttls()
-            smtp.ehlo()
-            
-            logger.info(f"STEP 5: Logging in")
-            smtp.login(gmail_user, gmail_pass)
-            
-            logger.info(f"STEP 6: Sending message")
-            smtp.send_message(msg)
-            
-            logger.info(f"STEP 7: Email sent successfully")
-            smtp.quit()
-            
+    try:
+        logger.info(f"STEP 1: send_email entered")
+        logger.info(f"STEP 2: recipient={to_email}, subject={subject[:50]}")
+        
+        client = Resend(api_key=resend_api_key)
+        
+        logger.info(f"STEP 3: Sending via Resend API")
+        response = client.emails.send({
+            "from": from_email,
+            "to": to_email,
+            "subject": subject,
+            "html": html_body,
+        })
+        
+        logger.info(f"STEP 4: Resend response: {response}")
+        
+        if response and response.get("id"):
+            logger.info(f"STEP 5: Email sent successfully via Resend - id={response.get('id')}")
             log_email(to_email, email_type, subject, "sent")
             return True
+        else:
+            logger.error(f"Resend API returned no email ID: {response}")
+            log_email(to_email, email_type, subject, "failed", "Resend API returned no email ID")
+            return False
             
-        except Exception as e:
-            logger.error(f"Email send failed (attempt {attempt}/{max_retries}): {type(e).__name__}: {str(e)}")
-            logger.error(f"  repr: {repr(e)}")
-            logger.exception("Traceback:")
-            if attempt < max_retries:
-                import time
-                time.sleep(retry_delay)
-            else:
-                log_email(to_email, email_type, subject, "failed", f"{type(e).__name__}: {str(e)}")
-                return False
-    
-    return False
+    except Exception as e:
+        logger.error(f"Email send failed: {type(e).__name__}: {str(e)}")
+        logger.error(f"  repr: {repr(e)}")
+        logger.exception("Traceback:")
+        log_email(to_email, email_type, subject, "failed", f"{type(e).__name__}: {str(e)}")
+        return False
 
 def send_appointment_confirmation(appointment: dict):
     """Send appointment confirmation email to user."""
@@ -2150,7 +2133,7 @@ def user_login_google(data: UserLoginGoogleRequest):
 def user_request_otp(data: UserRequestOTPRequest):
     """
     Request OTP for user email verification or login.
-    Sends OTP via Gmail SMTP. Works for both new and existing users.
+    Sends OTP via Resend Email API. Works for both new and existing users.
     """
     if not data.email or "@" not in data.email:
         raise HTTPException(status_code=422, detail="Valid email required")
@@ -2165,14 +2148,14 @@ def user_request_otp(data: UserRequestOTPRequest):
     if not store_otp(DB_PATH, data.email, otp_code, data.purpose):
         raise HTTPException(status_code=500, detail="Failed to store OTP")
     
-    # Send OTP via Gmail SMTP (uses main.py send_email for consistent logging)
+    # Send OTP via Resend Email API (uses main.py send_email for consistent logging)
     sent = send_otp_email_message(data.email, otp_code, data.purpose)
     
     if not sent:
-        # SMTP not configured — return OTP in dev mode only
+        # Email service not configured — return OTP in dev mode only
         env = os.getenv("ENVIRONMENT", "production")
         if env == "development":
-            logger.warning("SMTP not configured, returning OTP in response (dev mode): %s", otp_code)
+            logger.warning("Email service not configured, returning OTP in response (dev mode): %s", otp_code)
             return {
                 "success": True,
                 "message": f"[DEV MODE] OTP: {otp_code}",
@@ -2180,7 +2163,7 @@ def user_request_otp(data: UserRequestOTPRequest):
                 "dev_otp": otp_code,
             }
         # In production, log the real error but return generic message to user
-        logger.error("Failed to send OTP email to %s. Check GMAIL_USER, GMAIL_APP_PASSWORD, and SMTP configuration. OTP was stored in database.", data.email)
+        logger.error("Failed to send OTP email to %s. Check RESEND_API_KEY and FROM_EMAIL configuration. OTP was stored in database.", data.email)
         return {
             "success": False,
             "message": "Unable to send verification email. Please try again later.",
@@ -2324,7 +2307,7 @@ def user_resend_otp(data: UserRequestOTPRequest):
     if not sent:
         if env == "development":
             return {"success": True, "message": f"[DEV] OTP: {otp_code}", "dev_otp": otp_code}
-        logger.error("Failed to resend OTP email to %s. Check GMAIL_USER, GMAIL_APP_PASSWORD, and SMTP configuration. OTP was stored in database.", data.email)
+        logger.error("Failed to resend OTP email to %s. Check RESEND_API_KEY and FROM_EMAIL configuration. OTP was stored in database.", data.email)
         return {"success": False, "message": "Unable to send verification email. Please try again later."}
     return {"success": True, "message": f"New OTP sent to {data.email}"}
 
