@@ -2096,51 +2096,63 @@ def google_status():
 def debug_network():
     """
     Diagnostic endpoint to test network connectivity to SMTP servers.
-    Returns DNS resolution and TCP socket connectivity test results.
+    Explicitly resolves IPv4 addresses using getaddrinfo and tests connectivity.
     """
     import socket
     
     results = {
-        "smtp_gmail_dns": None,
-        "smtp_gmail_dns_error": None,
-        "smtp_port_465_tcp": None,
-        "smtp_port_465_tcp_error": None,
-        "smtp_port_587_tcp": None,
-        "smtp_port_587_tcp_error": None,
+        "smtp_gmail_ipv4_addresses": [],
+        "smtp_gmail_ipv4_addresses_error": None,
+        "smtp_port_465_tcp_ipv4": None,
+        "smtp_port_465_tcp_ipv4_error": None,
+        "smtp_port_587_tcp_ipv4": None,
+        "smtp_port_587_tcp_ipv4_error": None,
     }
     
-    # Test DNS resolution
+    # Resolve IPv4 addresses using getaddrinfo
     try:
-        ip = socket.gethostbyname("smtp.gmail.com")
-        results["smtp_gmail_dns"] = ip
-        logger.info(f"DNS resolved smtp.gmail.com to {ip}")
+        addrinfo = socket.getaddrinfo("smtp.gmail.com", 587, socket.AF_INET)
+        ipv4_addresses = []
+        for family, socktype, proto, canonname, sockaddr in addrinfo:
+            ip = sockaddr[0]
+            if ip not in ipv4_addresses:
+                ipv4_addresses.append(ip)
+                logger.info(f"Resolved IPv4 address: {ip}")
+        results["smtp_gmail_ipv4_addresses"] = ipv4_addresses
     except Exception as e:
-        results["smtp_gmail_dns_error"] = f"{type(e).__name__}: {str(e)}"
-        logger.error(f"DNS resolution failed: {results['smtp_gmail_dns_error']}")
+        results["smtp_gmail_ipv4_addresses_error"] = f"{type(e).__name__}: {str(e)}"
+        logger.error(f"IPv4 resolution failed: {results['smtp_gmail_ipv4_addresses_error']}")
+        return results
     
-    # Test TCP connection to port 465
+    if not ipv4_addresses:
+        results["smtp_gmail_ipv4_addresses_error"] = "No IPv4 addresses resolved"
+        logger.error("No IPv4 addresses resolved for smtp.gmail.com")
+        return results
+    
+    # Test TCP connection to port 465 using first resolved IPv4
+    ipv4_addr = ipv4_addresses[0]
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(5)
-        sock.connect(("smtp.gmail.com", 465))
+        sock.connect((ipv4_addr, 465))
         sock.close()
-        results["smtp_port_465_tcp"] = "connection_ok"
-        logger.info("TCP connection to smtp.gmail.com:465 successful")
+        results["smtp_port_465_tcp_ipv4"] = f"connection_ok_to_{ipv4_addr}"
+        logger.info(f"TCP connection to {ipv4_addr}:465 successful")
     except Exception as e:
-        results["smtp_port_465_tcp_error"] = f"{type(e).__name__}: {str(e)}"
-        logger.error(f"TCP connection to :465 failed: {results['smtp_port_465_tcp_error']}")
+        results["smtp_port_465_tcp_ipv4_error"] = f"{type(e).__name__}: {str(e)}"
+        logger.error(f"TCP connection to {ipv4_addr}:465 failed: {results['smtp_port_465_tcp_ipv4_error']}")
     
-    # Test TCP connection to port 587
+    # Test TCP connection to port 587 using first resolved IPv4
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(5)
-        sock.connect(("smtp.gmail.com", 587))
+        sock.connect((ipv4_addr, 587))
         sock.close()
-        results["smtp_port_587_tcp"] = "connection_ok"
-        logger.info("TCP connection to smtp.gmail.com:587 successful")
+        results["smtp_port_587_tcp_ipv4"] = f"connection_ok_to_{ipv4_addr}"
+        logger.info(f"TCP connection to {ipv4_addr}:587 successful")
     except Exception as e:
-        results["smtp_port_587_tcp_error"] = f"{type(e).__name__}: {str(e)}"
-        logger.error(f"TCP connection to :587 failed: {results['smtp_port_587_tcp_error']}")
+        results["smtp_port_587_tcp_ipv4_error"] = f"{type(e).__name__}: {str(e)}"
+        logger.error(f"TCP connection to {ipv4_addr}:587 failed: {results['smtp_port_587_tcp_ipv4_error']}")
     
     return results
 
