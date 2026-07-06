@@ -289,10 +289,11 @@
 /* ── Divider ────────────────────────────────────────────────────── */
 .divider-or {
   text-align: center;
-  margin: 20px 0;
+  margin: 28px 0 24px;
   font-size: 12px;
   color: var(--text-muted);
   position: relative;
+  font-weight: 600;
 }
 .divider-or::before {
   content: '';
@@ -308,7 +309,7 @@
   background: var(--bg-secondary);
   position: relative;
   z-index: 2;
-  padding: 0 8px;
+  padding: 0 12px;
   width: fit-content;
   left: 50%;
   transform: translateX(-50%);
@@ -356,6 +357,29 @@
   width: 20px;
   height: 20px;
   display: inline-block;
+}
+
+/* ── Google Button Container ────────────────────────────────────── */
+#googleButtonContainer {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  margin: 20px auto;
+  padding: 0;
+}
+
+#googleButtonContainer > div {
+  display: flex !important;
+  justify-content: center !important;
+  width: 100% !important;
+}
+
+/* Google button responsive sizing */
+@media (max-width: 768px) {
+  #googleButtonContainer {
+    margin: 16px auto;
+  }
 }
 
 .otp-btn {

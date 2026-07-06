@@ -240,9 +240,19 @@ function initGoogleIdentity() {
     callback: handleGoogleCredential,
   });
 
+  // Disable auto-select to show "Continue with Google" instead of "Sign in as <name>"
+  google.accounts.id.disableAutoSelect();
+
   google.accounts.id.renderButton(
     document.getElementById("googleButtonContainer"),
-    { type: "standard", size: "large", text: "signin_with" }
+    {
+      type: "standard",
+      theme: "outline",
+      size: "large",
+      text: "continue_with",
+      shape: "rectangular",
+      width: 360,
+    }
   );
 
   _googleReady = true;

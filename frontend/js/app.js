@@ -54,6 +54,12 @@ function logout() {
                         'ha_auth_token','ha_user_id','ha_email'];
   keysToRemove.forEach(k => localStorage.removeItem(k));
   sessionStorage.clear();
+  
+  // Disable Google auto-select to show generic "Continue with Google" on next login
+  if (typeof google !== "undefined" && google.accounts?.id) {
+    google.accounts.id.disableAutoSelect();
+  }
+  
   window.location.replace("index.html");
 }
 
