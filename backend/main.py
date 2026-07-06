@@ -2092,6 +2092,58 @@ def google_status():
     logger.info(f"=== END GOOGLE STATUS CHECK ===")
     return {"configured": is_configured, "client_id": client_id if is_configured else ""}
 
+@app.get("/debug/network")
+def debug_network():
+    """
+    Diagnostic endpoint to test network connectivity to SMTP servers.
+    Returns DNS resolution and TCP socket connectivity test results.
+    """
+    import socket
+    
+    results = {
+        "smtp_gmail_dns": None,
+        "smtp_gmail_dns_error": None,
+        "smtp_port_465_tcp": None,
+        "smtp_port_465_tcp_error": None,
+        "smtp_port_587_tcp": None,
+        "smtp_port_587_tcp_error": None,
+    }
+    
+    # Test DNS resolution
+    try:
+        ip = socket.gethostbyname("smtp.gmail.com")
+        results["smtp_gmail_dns"] = ip
+        logger.info(f"DNS resolved smtp.gmail.com to {ip}")
+    except Exception as e:
+        results["smtp_gmail_dns_error"] = f"{type(e).__name__}: {str(e)}"
+        logger.error(f"DNS resolution failed: {results['smtp_gmail_dns_error']}")
+    
+    # Test TCP connection to port 465
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        sock.connect(("smtp.gmail.com", 465))
+        sock.close()
+        results["smtp_port_465_tcp"] = "connection_ok"
+        logger.info("TCP connection to smtp.gmail.com:465 successful")
+    except Exception as e:
+        results["smtp_port_465_tcp_error"] = f"{type(e).__name__}: {str(e)}"
+        logger.error(f"TCP connection to :465 failed: {results['smtp_port_465_tcp_error']}")
+    
+    # Test TCP connection to port 587
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        sock.connect(("smtp.gmail.com", 587))
+        sock.close()
+        results["smtp_port_587_tcp"] = "connection_ok"
+        logger.info("TCP connection to smtp.gmail.com:587 successful")
+    except Exception as e:
+        results["smtp_port_587_tcp_error"] = f"{type(e).__name__}: {str(e)}"
+        logger.error(f"TCP connection to :587 failed: {results['smtp_port_587_tcp_error']}")
+    
+    return results
+
 @app.post("/auth/user/google")
 def user_login_google(data: UserLoginGoogleRequest):
     """
