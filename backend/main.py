@@ -585,31 +585,26 @@ def send_email(to_email: str, subject: str, html_body: str, email_type: str = "g
     gmail_user = os.getenv("GMAIL_USER", "").strip()
     gmail_pass = os.getenv("GMAIL_APP_PASSWORD", "").strip()
     
-    # Log configuration status (not actual values for security)
     logger.info(f"GMAIL_USER configured: {bool(gmail_user)}")
     logger.info(f"GMAIL_APP_PASSWORD configured: {bool(gmail_pass)}")
     
-    # If credentials not set, log error and return False
     if not gmail_user or not gmail_pass:
         if not gmail_user:
-            logger.error(f"SMTP configuration error: GMAIL_USER environment variable not set")
+            logger.error("SMTP ERROR: GMAIL_USER environment variable not set")
         if not gmail_pass:
-            logger.error(f"SMTP configuration error: GMAIL_APP_PASSWORD environment variable not set")
+            logger.error("SMTP ERROR: GMAIL_APP_PASSWORD environment variable not set")
         log_email(to_email, email_type, subject, "skipped", "Missing SMTP credentials")
         return False
     
     try:
-        # Build message
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
         msg["From"] = f"HA! Healthcare AI <{gmail_user}>"
         msg["To"] = to_email
         
-        # Add HTML body
         part = MIMEText(html_body, "html")
         msg.attach(part)
 
-        # Try port 465 SSL first, then fall back to port 587 STARTTLS
         sent = False
         last_error = None
         
@@ -618,25 +613,32 @@ def send_email(to_email: str, subject: str, html_body: str, email_type: str = "g
         try:
             with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
                 logger.info(f"SMTP_SSL connection established")
-                logger.info(f"Attempting SMTP login...")
                 server.login(gmail_user, gmail_pass)
                 logger.info(f"SMTP login successful")
-                logger.info(f"Sending email...")
                 server.sendmail(gmail_user, to_email, msg.as_string())
                 logger.info(f"Email sent successfully via port 465")
             sent = True
         except smtplib.SMTPAuthenticationError as e:
             last_error = e
-            logger.error(f"SMTP authentication failed on port 465: {type(e).__name__}: {e}")
+            logger.error(f"SMTP AUTHENTICATION ERROR port 465: {str(e)}")
+        except smtplib.SMTPServerDisconnected as e:
+            last_error = e
+            logger.error(f"SMTP SERVER DISCONNECTED port 465: {str(e)}")
+        except smtplib.SMTPConnectError as e:
+            last_error = e
+            logger.error(f"SMTP CONNECT ERROR port 465: {str(e)}")
         except smtplib.SMTPException as e:
             last_error = e
-            logger.error(f"SMTP error on port 465: {type(e).__name__}: {e}")
+            logger.error(f"SMTP EXCEPTION port 465: {str(e)}")
         except socket.timeout as e:
             last_error = e
-            logger.error(f"Timeout on port 465: {type(e).__name__}: {e}")
+            logger.error(f"SOCKET TIMEOUT port 465: {str(e)}")
+        except socket.gaierror as e:
+            last_error = e
+            logger.error(f"SOCKET GAIERROR port 465: {str(e)}")
         except Exception as e:
             last_error = e
-            logger.error(f"Connection error on port 465: {type(e).__name__}: {e}")
+            logger.error(f"EXCEPTION port 465: {type(e).__name__}: {str(e)}")
         
         # Attempt 2: Port 587 with STARTTLS
         if not sent:
@@ -644,41 +646,47 @@ def send_email(to_email: str, subject: str, html_body: str, email_type: str = "g
             try:
                 with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
                     logger.info(f"SMTP connection established")
-                    logger.info(f"Sending EHLO...")
                     server.ehlo()
-                    logger.info(f"Starting TLS...")
                     server.starttls()
-                    logger.info(f"Attempting SMTP login...")
+                    logger.info(f"STARTTLS started")
                     server.login(gmail_user, gmail_pass)
                     logger.info(f"SMTP login successful")
-                    logger.info(f"Sending email...")
                     server.sendmail(gmail_user, to_email, msg.as_string())
                     logger.info(f"Email sent successfully via port 587")
                 sent = True
             except smtplib.SMTPAuthenticationError as e:
                 last_error = e
-                logger.error(f"SMTP authentication failed on port 587: {type(e).__name__}: {e}")
+                logger.error(f"SMTP AUTHENTICATION ERROR port 587: {str(e)}")
+            except smtplib.SMTPServerDisconnected as e:
+                last_error = e
+                logger.error(f"SMTP SERVER DISCONNECTED port 587: {str(e)}")
+            except smtplib.SMTPConnectError as e:
+                last_error = e
+                logger.error(f"SMTP CONNECT ERROR port 587: {str(e)}")
             except smtplib.SMTPException as e:
                 last_error = e
-                logger.error(f"SMTP error on port 587: {type(e).__name__}: {e}")
+                logger.error(f"SMTP EXCEPTION port 587: {str(e)}")
             except socket.timeout as e:
                 last_error = e
-                logger.error(f"Timeout on port 587: {type(e).__name__}: {e}")
+                logger.error(f"SOCKET TIMEOUT port 587: {str(e)}")
+            except socket.gaierror as e:
+                last_error = e
+                logger.error(f"SOCKET GAIERROR port 587: {str(e)}")
             except Exception as e:
                 last_error = e
-                logger.error(f"Connection error on port 587: {type(e).__name__}: {e}")
+                logger.error(f"EXCEPTION port 587: {type(e).__name__}: {str(e)}")
 
         if sent:
             log_email(to_email, email_type, subject, "sent")
             return True
         else:
-            logger.error(f"Email send failed after all SMTP attempts. Last error: {type(last_error).__name__}")
+            logger.error(f"SMTP FAILED: Could not send email after both attempts. Last error: {type(last_error).__name__}: {str(last_error)}")
             log_email(to_email, email_type, subject, "failed", f"{type(last_error).__name__}")
             return False
 
     except Exception as e:
         error_type = type(e).__name__
-        logger.error(f"Unexpected error in send_email: {error_type}: {e}")
+        logger.error(f"UNEXPECTED ERROR in send_email: {error_type}: {str(e)}")
         log_email(to_email, email_type, subject, "failed", error_type)
         return False
 

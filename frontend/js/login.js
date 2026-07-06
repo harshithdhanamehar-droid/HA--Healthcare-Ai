@@ -22,6 +22,11 @@ let _pendingUserId  = "";   // filled after OTP verify, used for profile setup
 let _googleClientId = "";
 let _googleReady    = false;
 
+// ── TRACE COUNTERS (debugging) ────────────────────────────
+let _trace_init = 0;
+let _trace_prompt = 0;
+let _trace_credential = 0;
+
 // ── DOM ready ─────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
   console.log("=== LOGIN PAGE INITIALIZED ===");
@@ -263,10 +268,22 @@ async function initGoogleLogin() {
 }
 
 function initGoogleIdentity() {
-  if (_googleReady) return true;
-  if (!_googleClientId) return false;
-  if (typeof google === "undefined" || !google.accounts?.id) return false;
+  if (_googleReady) {
+    console.warn("initGoogleIdentity already called - skipping");
+    return true;
+  }
+  if (!_googleClientId) {
+    console.warn("initGoogleIdentity: _googleClientId not set");
+    return false;
+  }
+  if (typeof google === "undefined" || !google.accounts?.id) {
+    console.warn("initGoogleIdentity: Google SDK not loaded");
+    return false;
+  }
 
+  _trace_init++;
+  console.log(`[TRACE] google.accounts.id.initialize() call #${_trace_init}`);
+  
   google.accounts.id.initialize({
     client_id: _googleClientId,
     callback: handleGoogleCredential,
@@ -274,6 +291,7 @@ function initGoogleIdentity() {
     use_fedcm_for_prompt: false,
   });
   _googleReady = true;
+  console.log(`[TRACE] initialize() complete. _googleReady = true`);
   return true;
 }
 
@@ -295,12 +313,14 @@ async function handleGoogleLogin() {
   
   if (googleBtn) googleBtn.disabled = true;
   
-  console.log("Calling google.accounts.id.prompt()");
+  _trace_prompt++;
+  console.log(`[TRACE] google.accounts.id.prompt() call #${_trace_prompt}`);
+  
   google.accounts.id.prompt((notification) => {
     console.log("Google Prompt notification:", notification);
     
     if (notification.isNotDisplayed()) {
-      console.log("Prompt not displayed, user has already authenticated or dismissed");
+      console.log("Prompt not displayed - user may have authenticated or dismissed");
       if (googleBtn) googleBtn.disabled = false;
     } else if (notification.isSkippedMoment()) {
       console.log("Prompt skipped by user");
@@ -315,9 +335,18 @@ async function handleGoogleLogin() {
 // ── Google credential callback ────────────────────────────────────
 async function handleGoogleCredential(response) {
   clearError("error-msg");
-  console.log("=== GOOGLE CREDENTIAL RECEIVED ===");
+  _trace_credential++;
+  console.log(`[TRACE] handleGoogleCredential() call #${_trace_credential}`);
+  
   const googleBtn = document.getElementById("googleLoginBtn");
   
+  if (!response || !response.credential) {
+    console.error("handleGoogleCredential: No credential in response");
+    setError("error-msg", "Google sign-in failed. Please try again.");
+    if (googleBtn) googleBtn.disabled = false;
+    return;
+  }
+
   try {
     console.log("Sending credential to /auth/user/google");
     const data = await apiPost("/auth/user/google", {
@@ -326,6 +355,9 @@ async function handleGoogleCredential(response) {
     
     console.log("Google login backend response:", data);
     console.log("=== GOOGLE LOGIN SUCCESS ===");
+    if (data.token) {
+      console.log("JWT received, redirecting to dashboard");
+    }
     afterLogin(data);
   } catch (err) {
     console.error("Google login error:", err);
