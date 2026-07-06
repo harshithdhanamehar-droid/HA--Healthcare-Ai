@@ -2072,7 +2072,9 @@ def google_status():
     """Check if Google OAuth is configured."""
     client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
     is_configured = bool(client_id)
+    logger.info(f"=== GOOGLE STATUS CHECK ===")
     logger.info(f"GOOGLE_CLIENT_ID configured: {is_configured}")
+    logger.info(f"=== END GOOGLE STATUS CHECK ===")
     return {"configured": is_configured, "client_id": client_id if is_configured else ""}
 
 @app.post("/auth/user/google")
@@ -2085,21 +2087,26 @@ def user_login_google(data: UserLoginGoogleRequest):
     from google.oauth2 import id_token as google_id_token
     from google.auth.transport import requests as google_requests
 
+    logger.info("=== GOOGLE LOGIN REQUEST ===")
     g_client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
     logger.info(f"GOOGLE_CLIENT_ID configured: {bool(g_client_id)}")
     if not g_client_id:
+        logger.error("Google OAuth not configured - GOOGLE_CLIENT_ID not set")
         raise HTTPException(status_code=501, detail="Google OAuth not configured. Set GOOGLE_CLIENT_ID in .env")
 
     # Verify the ID token issued by Google
     try:
+        logger.info("Verifying ID token with Google")
         idinfo = google_id_token.verify_oauth2_token(
             data.token,
             google_requests.Request(),
             g_client_id,
             clock_skew_in_seconds=10,
         )
+        logger.info("ID token verified successfully")
     except Exception as exc:
         logger.warning("Google id_token verify failed: %s", exc)
+        logger.warning("=== GOOGLE LOGIN FAILED ===")
         raise HTTPException(status_code=401, detail="Invalid Google token")
 
     google_sub = idinfo.get("sub")
@@ -2168,6 +2175,7 @@ def user_login_google(data: UserLoginGoogleRequest):
         store_token(DB_PATH, access_token, user_id, "user")
 
         logger.info("Google login: user=%s new=%s", user_id, is_new)
+        logger.info("=== GOOGLE LOGIN SUCCESS ===")
         return {
             "token":         access_token,
             "user_id":       user_id,
@@ -2185,6 +2193,7 @@ def user_login_google(data: UserLoginGoogleRequest):
         raise
     except Exception as e:
         logger.error("Google login DB error: %s", e)
+        logger.error("=== GOOGLE LOGIN FAILED ===")
         raise HTTPException(status_code=500, detail="Authentication failed")
 
 @app.post("/auth/user/otp/request")

@@ -291,22 +291,47 @@ async function handleGoogleLogin() {
     return;
   }
 
+  console.log("=== GOOGLE LOGIN BUTTON CLICKED ===");
+  
   if (googleBtn) googleBtn.disabled = true;
-  google.accounts.id.prompt();
-  setTimeout(() => { if (googleBtn) googleBtn.disabled = false; }, 1000);
+  
+  console.log("Calling google.accounts.id.prompt()");
+  google.accounts.id.prompt((notification) => {
+    console.log("Google Prompt notification:", notification);
+    
+    if (notification.isNotDisplayed()) {
+      console.log("Prompt not displayed, user has already authenticated or dismissed");
+      if (googleBtn) googleBtn.disabled = false;
+    } else if (notification.isSkippedMoment()) {
+      console.log("Prompt skipped by user");
+      if (googleBtn) googleBtn.disabled = false;
+    } else if (notification.isDismissedMoment()) {
+      console.log("Prompt dismissed by user");
+      if (googleBtn) googleBtn.disabled = false;
+    }
+  });
 }
 
 // ── Google credential callback ────────────────────────────────────
 async function handleGoogleCredential(response) {
   clearError("error-msg");
+  console.log("=== GOOGLE CREDENTIAL RECEIVED ===");
+  const googleBtn = document.getElementById("googleLoginBtn");
+  
   try {
-    const data = await apiPost("/auth/google/login", {
+    console.log("Sending credential to /auth/user/google");
+    const data = await apiPost("/auth/user/google", {
       token: response.credential,
     });
+    
     console.log("Google login backend response:", data);
+    console.log("=== GOOGLE LOGIN SUCCESS ===");
     afterLogin(data);
   } catch (err) {
-    setError("error-msg", "Google sign-in failed: " + apiErrorMessage(err));
+    console.error("Google login error:", err);
+    setError("error-msg", "Google sign-in failed. Please try again.");
+  } finally {
+    if (googleBtn) googleBtn.disabled = false;
   }
 }
 
