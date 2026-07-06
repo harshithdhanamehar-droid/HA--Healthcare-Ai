@@ -579,24 +579,13 @@ def log_email(recipient: str, email_type: str, subject: str, status: str, error:
 def send_email(to_email: str, subject: str, html_body: str, email_type: str = "general") -> bool:
     """
     Send email via Gmail SMTP using port 587 (STARTTLS).
-    Uses modern best practices with retry logic for network resilience.
-    Returns True if sent, False if failed (but app continues).
+    Returns True if sent, False if failed.
     """
-    logger.info("STEP 1: send_email entered")
-    
     gmail_user = os.getenv("GMAIL_USER", "").strip()
     gmail_pass = os.getenv("GMAIL_APP_PASSWORD", "").strip()
     
-    logger.info("STEP 2: credentials loaded")
-    logger.info(f"  GMAIL_USER configured: {bool(gmail_user)}")
-    logger.info(f"  GMAIL_APP_PASSWORD configured: {bool(gmail_pass)}")
-    
     if not gmail_user or not gmail_pass:
-        if not gmail_user:
-            logger.error("SMTP ERROR: GMAIL_USER environment variable not set")
-        if not gmail_pass:
-            logger.error("SMTP ERROR: GMAIL_APP_PASSWORD environment variable not set")
-        log_email(to_email, email_type, subject, "skipped", "Missing SMTP credentials")
+        logger.error("SMTP: Missing credentials")
         return False
     
     max_retries = 3
@@ -604,116 +593,41 @@ def send_email(to_email: str, subject: str, html_body: str, email_type: str = "g
     
     for attempt in range(1, max_retries + 1):
         try:
-            logger.info(f"Sending email (attempt {attempt}/{max_retries})")
+            logger.info(f"STEP 1: send_email entered")
             
-            logger.info("STEP 3: building MIME message")
             from email.message import EmailMessage
             msg = EmailMessage()
             msg['Subject'] = subject
             msg['From'] = f"HA! Healthcare AI <{gmail_user}>"
             msg['To'] = to_email
             msg.set_content(html_body, subtype='html')
-            logger.info(f"  msg['From'] = {msg['From']}")
-            logger.info(f"  msg['To'] = {msg['To']}")
-            logger.info(f"  msg['Subject'] = {msg['Subject']}")
             
-            logger.info("STEP 4: opening SMTP_SSL")
-            logger.info("Connecting to smtp.gmail.com:587...")
+            logger.info(f"STEP 2: MIME message created - To: {to_email}, Subject: {subject[:50]}")
+            
+            logger.info(f"STEP 3: Connecting to smtp.gmail.com:587")
             smtp = smtplib.SMTP("smtp.gmail.com", 587, timeout=30)
             
-            logger.info("STEP 5: SMTP connection established")
+            logger.info(f"STEP 4: SMTP connection established")
             smtp.ehlo()
-            
-            logger.info("Starting STARTTLS...")
             smtp.starttls()
-            
             smtp.ehlo()
             
-            logger.info("STEP 6: login()")
+            logger.info(f"STEP 5: Logging in")
             smtp.login(gmail_user, gmail_pass)
-            logger.info("STEP 7: login success")
             
-            logger.info("STEP 8: sendmail()")
+            logger.info(f"STEP 6: Sending message")
             smtp.send_message(msg)
-            logger.info("STEP 9: sendmail success")
             
+            logger.info(f"STEP 7: Email sent successfully")
             smtp.quit()
             
-            logger.info("STEP 10: return True")
             log_email(to_email, email_type, subject, "sent")
             return True
             
-        except smtplib.SMTPAuthenticationError as e:
-            logger.error(f"STEP: SMTP Authentication failed (attempt {attempt}/{max_retries})")
-            logger.error(f"  Exception type: {type(e).__name__}")
-            logger.error(f"  repr: {repr(e)}")
-            logger.error(f"  str: {str(e)}")
-            logger.error(f"  Traceback:", exc_info=True)
-            if attempt < max_retries:
-                import time
-                time.sleep(retry_delay)
-            else:
-                log_email(to_email, email_type, subject, "failed", f"SMTPAuthenticationError: {str(e)}")
-                return False
-                
-        except smtplib.SMTPException as e:
-            logger.error(f"STEP: SMTP error (attempt {attempt}/{max_retries})")
-            logger.error(f"  Exception type: {type(e).__name__}")
-            logger.error(f"  repr: {repr(e)}")
-            logger.error(f"  str: {str(e)}")
-            logger.error(f"  Traceback:", exc_info=True)
-            if attempt < max_retries:
-                import time
-                time.sleep(retry_delay)
-            else:
-                log_email(to_email, email_type, subject, "failed", f"SMTPException: {str(e)}")
-                return False
-                
-        except socket.timeout as e:
-            logger.error(f"STEP: Socket timeout (attempt {attempt}/{max_retries})")
-            logger.error(f"  Exception type: {type(e).__name__}")
-            logger.error(f"  repr: {repr(e)}")
-            logger.error(f"  str: {str(e)}")
-            logger.error(f"  Traceback:", exc_info=True)
-            if attempt < max_retries:
-                import time
-                time.sleep(retry_delay)
-            else:
-                log_email(to_email, email_type, subject, "failed", f"socket.timeout: {str(e)}")
-                return False
-                
-        except socket.gaierror as e:
-            logger.error(f"STEP: DNS/network error (attempt {attempt}/{max_retries})")
-            logger.error(f"  Exception type: {type(e).__name__}")
-            logger.error(f"  repr: {repr(e)}")
-            logger.error(f"  str: {str(e)}")
-            logger.error(f"  Traceback:", exc_info=True)
-            if attempt < max_retries:
-                import time
-                time.sleep(retry_delay)
-            else:
-                log_email(to_email, email_type, subject, "failed", f"socket.gaierror: {str(e)}")
-                return False
-                
-        except OSError as e:
-            logger.error(f"STEP: OS/network error (attempt {attempt}/{max_retries})")
-            logger.error(f"  Exception type: {type(e).__name__}")
-            logger.error(f"  repr: {repr(e)}")
-            logger.error(f"  str: {str(e)}")
-            logger.error(f"  Traceback:", exc_info=True)
-            if attempt < max_retries:
-                import time
-                time.sleep(retry_delay)
-            else:
-                log_email(to_email, email_type, subject, "failed", f"OSError: {str(e)}")
-                return False
-                
         except Exception as e:
-            logger.error(f"STEP: Unexpected error (attempt {attempt}/{max_retries})")
-            logger.error(f"  Exception type: {type(e).__name__}")
+            logger.error(f"Email send failed (attempt {attempt}/{max_retries}): {type(e).__name__}: {str(e)}")
             logger.error(f"  repr: {repr(e)}")
-            logger.error(f"  str: {str(e)}")
-            logger.error(f"  Traceback:", exc_info=True)
+            logger.exception("Traceback:")
             if attempt < max_retries:
                 import time
                 time.sleep(retry_delay)
@@ -721,7 +635,6 @@ def send_email(to_email: str, subject: str, html_body: str, email_type: str = "g
                 log_email(to_email, email_type, subject, "failed", f"{type(e).__name__}: {str(e)}")
                 return False
     
-    logger.error(f"Email send failed after {max_retries} attempts")
     return False
 
 def send_appointment_confirmation(appointment: dict):
@@ -2128,20 +2041,12 @@ def user_login_google(data: UserLoginGoogleRequest):
     """
     from google.oauth2 import id_token as google_id_token
     from google.auth.transport import requests as google_requests
-    import jwt as jwt_lib
 
-    logger.info("=== STEP 1: GOOGLE LOGIN REQUEST RECEIVED ===")
-    logger.info(f"Frontend sent token: {bool(data.token)}")
-    
     g_client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
-    logger.info(f"=== STEP 2: GOOGLE_CLIENT_ID CHECK ===")
-    logger.info(f"GOOGLE_CLIENT_ID configured: {bool(g_client_id)}")
-    
     if not g_client_id:
-        logger.error("Google OAuth not configured - GOOGLE_CLIENT_ID not set")
-        raise HTTPException(status_code=501, detail="Google OAuth not configured. Set GOOGLE_CLIENT_ID in .env")
+        logger.error("Google OAuth not configured")
+        raise HTTPException(status_code=501, detail="Google OAuth not configured")
 
-    logger.info("=== STEP 3: VERIFYING ID TOKEN ===")
     try:
         idinfo = google_id_token.verify_oauth2_token(
             data.token,
@@ -2149,49 +2054,39 @@ def user_login_google(data: UserLoginGoogleRequest):
             g_client_id,
             clock_skew_in_seconds=10,
         )
-        logger.info("ID token verified successfully")
     except Exception as exc:
-        logger.error(f"ID token verification failed: {type(exc).__name__}: {str(exc)}")
-        logger.error("=== GOOGLE LOGIN FAILED AT TOKEN VERIFICATION ===")
+        logger.error(f"Google token verification failed: {type(exc).__name__}: {str(exc)}")
         raise HTTPException(status_code=401, detail="Invalid Google token")
 
     google_sub = idinfo.get("sub")
     email      = idinfo.get("email", "")
-    name       = data.name or idinfo.get("name", email.split("@")[0])
+    name       = data.name or idinfo.get("name", email.split("@")[0] if email else "User")
     picture    = idinfo.get("picture", "")
-    
-    logger.info(f"=== STEP 4: EXTRACTED USER INFO ===")
-    logger.info(f"google_sub: {google_sub}")
-    logger.info(f"email: {email}")
-    logger.info(f"name: {name}")
 
     if not google_sub or not email:
-        logger.error("Token missing required fields: google_sub or email")
-        raise HTTPException(status_code=401, detail="Google token missing sub/email")
+        logger.error("Google token missing sub or email")
+        raise HTTPException(status_code=401, detail="Google token missing required fields")
 
     now = datetime.now().isoformat()
 
     try:
-        logger.info("=== STEP 5: DATABASE OPERATIONS ===")
         conn = get_conn()
         cursor = conn.cursor()
 
-        # Check existing link
+        # Check existing Google auth link
         cursor.execute("SELECT user_id FROM google_auth WHERE google_sub=?", (google_sub,))
         row = cursor.fetchone()
 
         is_new = False
         if row:
             user_id = row[0]
-            logger.info(f"Existing Google auth found: user_id={user_id}")
             cursor.execute("SELECT name, phone, location FROM users WHERE id=?", (user_id,))
             urow     = cursor.fetchone()
             uname    = urow[0] if urow else ""
             uphone   = urow[1] if urow else ""
             uloc     = urow[2] if urow else ""
         else:
-            logger.info("No existing Google auth found, checking for email match")
-            # Check if email already registered (e.g. via OTP)
+            # Check if email already exists
             cursor.execute("SELECT id, name, phone, location FROM users WHERE email=?", (email,))
             existing = cursor.fetchone()
             if existing:
@@ -2199,8 +2094,7 @@ def user_login_google(data: UserLoginGoogleRequest):
                 uname   = existing[1] or ""
                 uphone  = existing[2] or ""
                 uloc    = existing[3] or ""
-                logger.info(f"Email matched to existing user: user_id={user_id}")
-                # Link google sub
+                # Link Google to existing user
                 cursor.execute("""
                     INSERT OR IGNORE INTO google_auth (google_sub, user_id, email, created_at)
                     VALUES (?,?,?,?)
@@ -2208,12 +2102,12 @@ def user_login_google(data: UserLoginGoogleRequest):
                 cursor.execute("UPDATE users SET google_sub=?, auth_provider='google', updated_at=? WHERE id=?",
                                (google_sub, now, user_id))
             else:
+                # Create new user
                 user_id  = str(uuid.uuid4())[:8]
                 uname    = name
                 uphone   = ""
                 uloc     = ""
                 is_new   = True
-                logger.info(f"Creating new user: user_id={user_id}, email={email}")
                 cursor.execute("""
                     INSERT INTO users (id, name, email, phone, location, auth_provider, google_sub, is_verified, created_at, updated_at)
                     VALUES (?,?,?,?,?,?,?,1,?,?)
@@ -2225,30 +2119,14 @@ def user_login_google(data: UserLoginGoogleRequest):
 
         conn.commit()
         conn.close()
-        logger.info(f"Database committed for user_id={user_id}")
 
         needs_profile = not uphone or not uloc
 
-        logger.info("=== STEP 6: JWT GENERATION ===")
         access_token = create_access_token(user_id, "user")
-        logger.info(f"JWT generated: {bool(access_token)}")
-        
-        logger.info("=== STEP 7: DECODING JWT FOR VERIFICATION ===")
-        try:
-            jwt_secret = os.getenv("JWT_SECRET", "your-secret-key")
-            decoded = jwt_lib.decode(access_token, jwt_secret, algorithms=["HS256"])
-            logger.info(f"JWT decoded successfully:")
-            logger.info(f"  user_id: {decoded.get('user_id')}")
-            logger.info(f"  email: {decoded.get('email')}")
-            logger.info(f"  role: {decoded.get('role')}")
-            logger.info(f"  exp: {decoded.get('exp')}")
-        except Exception as e:
-            logger.error(f"JWT decode failed: {type(e).__name__}: {str(e)}")
-        
         store_token(DB_PATH, access_token, user_id, "user")
 
-        logger.info("=== STEP 8: BUILDING RESPONSE ===")
-        response = {
+        logger.info(f"Google login successful: user={user_id}, new={is_new}")
+        return {
             "token":         access_token,
             "user_id":       user_id,
             "role":          "user",
@@ -2261,17 +2139,11 @@ def user_login_google(data: UserLoginGoogleRequest):
             "is_new_user":   is_new,
             "needs_profile": needs_profile,
         }
-        logger.info(f"Response contains token: {bool(response.get('token'))}")
-        logger.info(f"Response contains user_id: {bool(response.get('user_id'))}")
-        logger.info(f"Response contains role: {bool(response.get('role'))}")
-        
-        logger.info("=== GOOGLE LOGIN SUCCESS ===")
-        return response
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Google login DB error: {type(e).__name__}: {str(e)}")
-        logger.error("=== GOOGLE LOGIN FAILED AT DATABASE/JWT ===")
+        logger.error(f"Google login failed: {type(e).__name__}: {str(e)}")
+        logger.exception("Traceback:")
         raise HTTPException(status_code=500, detail="Authentication failed")
 
 @app.post("/auth/user/otp/request")

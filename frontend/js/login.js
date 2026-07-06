@@ -137,24 +137,15 @@ function apiErrorMessage(err, fallback = "Request failed. Please try again.") {
 
 // ── After successful login: route to profile setup or chat ────────
 function afterLogin(data) {
-  console.log("=== afterLogin STEP 1: SAVE SESSION ===");
   saveSession(data);
-  console.log("Session saved");
 
   if (data.needs_profile) {
-    console.log("=== afterLogin STEP 2: SHOW PROFILE MODAL ===");
-    // Store pending user id for profile submit
     _pendingUserId = data.user_id;
-    // Pre-fill what we know
     const nameEl = document.getElementById("profile-name");
     if (nameEl && data.name) nameEl.value = data.name;
-    // Show modal
     const modal = document.getElementById("profile-modal");
     if (modal) modal.style.display = "flex";
-    console.log("Profile modal shown for user:", _pendingUserId);
   } else {
-    console.log("=== afterLogin STEP 3: REDIRECT TO CHAT.HTML ===");
-    console.log("No profile needed, redirecting to chat.html");
     window.location.href = "chat.html";
   }
 }
@@ -266,30 +257,12 @@ async function handleGoogleCredential(response) {
   }
 
   try {
-    console.log("=== GOOGLE STEP 1: CREDENTIAL RECEIVED ===");
-    console.log("Credential present:", !!response.credential);
-    
-    console.log("=== GOOGLE STEP 2: POSTING TO /auth/user/google ===");
     const data = await apiPost("/auth/user/google", {
       token: response.credential,
     });
-    
-    console.log("=== GOOGLE STEP 3: BACKEND RESPONSE RECEIVED ===");
-    console.log("Response:", data);
-    console.log("Has token:", !!data.token);
-    console.log("Has user_id:", !!data.user_id);
-    console.log("Has role:", !!data.role);
-    console.log("Token value:", data.token ? data.token.substring(0, 50) + "..." : "N/A");
-    
-    console.log("=== GOOGLE STEP 4: CALLING afterLogin ===");
     afterLogin(data);
-    
-    console.log("=== GOOGLE LOGIN COMPLETE ===");
   } catch (err) {
-    console.error("=== GOOGLE LOGIN ERROR ===");
-    console.error("Error:", err);
-    console.error("Error message:", err.message);
-    console.error("Error status:", err.status);
+    console.error("Google login error:", err.message);
     setError("error-msg", "Google sign-in failed. Please try again.");
   }
 }
