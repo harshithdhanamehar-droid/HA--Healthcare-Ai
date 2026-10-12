@@ -217,63 +217,105 @@ async function resendPatientOtp() {
 // ── Google Login ──────────────────────────────────────────────────
 async function initGoogleLogin() {
   try {
-    const res = await fetch(`${API_BASE}/auth/google/status`);
+    const res = await fetch(`${API_BASE}/auth/google/status`, { timeout: 5000 });
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok || !data.configured || !data.client_id) {
+      console.warn("[HA! Login] Google OAuth not configured on backend");
       return;
     }
 
     _googleClientId = data.client_id;
-    initGoogleIdentity();
+    
+    // Wait for Google Identity Services library to load
+    // The script tag in index.html loads https://accounts.google.com/gsi/client
+    if (typeof google !== "undefined" && google.accounts?.id) {
+      initGoogleIdentity();
+    } else {
+      // Library not ready yet, wait and retry
+      console.log("[HA! Login] Waiting for Google Identity Services to load...");
+      let retries = 10;
+      const waitForGoogle = setInterval(() => {
+        if (typeof google !== "undefined" && google.accounts?.id) {
+          clearInterval(waitForGoogle);
+          initGoogleIdentity();
+        } else if (retries-- <= 0) {
+          clearInterval(waitForGoogle);
+          console.error("[HA! Login] Google Identity Services failed to load");
+        }
+      }, 200);
+    }
   } catch (err) {
-    // Silently fail if Google config check fails
+    console.warn("[HA! Login] Google status check failed:", err.message);
   }
 }
 
 function initGoogleIdentity() {
   if (_googleReady) return;
-  if (!_googleClientId || typeof google === "undefined" || !google.accounts?.id) return;
+  if (!_googleClientId) {
+    console.error("[HA! Login] Google Client ID not available");
+    return;
+  }
+  if (typeof google === "undefined" || !google.accounts?.id) {
+    console.error("[HA! Login] Google Identity Services library not loaded");
+    return;
+  }
 
-  google.accounts.id.initialize({
-    client_id: _googleClientId,
-    callback: handleGoogleCredential,
-  });
+  try {
+    google.accounts.id.initialize({
+      client_id: _googleClientId,
+      callback: handleGoogleCredential,
+    });
 
-  // Disable auto-select to show "Continue with Google" instead of "Sign in as <name>"
-  google.accounts.id.disableAutoSelect();
+    // Disable auto-select to show "Continue with Google" instead of "Sign in as <name>"
+    google.accounts.id.disableAutoSelect();
 
-  google.accounts.id.renderButton(
-    document.getElementById("googleButtonContainer"),
-    {
-      type: "standard",
-      theme: "outline",
-      size: "large",
-      text: "continue_with",
-      shape: "rectangular",
-      width: 360,
+    const buttonContainer = document.getElementById("googleButtonContainer");
+    if (!buttonContainer) {
+      console.error("[HA! Login] Google button container not found in DOM");
+      return;
     }
-  );
 
-  _googleReady = true;
+    google.accounts.id.renderButton(
+      buttonContainer,
+      {
+        type: "standard",
+        theme: "outline",
+        size: "large",
+        text: "continue_with",
+        shape: "rectangular",
+        width: 360,
+      }
+    );
+
+    _googleReady = true;
+    console.log("[HA! Login] Google OAuth initialized successfully");
+  } catch (err) {
+    console.error("[HA! Login] Failed to initialize Google OAuth:", err.message);
+  }
 }
 
 async function handleGoogleCredential(response) {
   clearError("error-msg");
 
   if (!response || !response.credential) {
+    console.error("[HA! Login] Google credential response invalid:", response);
     setError("error-msg", "Google sign-in failed. Please try again.");
     return;
   }
 
   try {
+    console.log("[HA! Login] Sending Google credential to backend...");
     const data = await apiPost("/auth/user/google", {
       token: response.credential,
     });
+    
+    console.log("[HA! Login] Google login successful, user_id:", data.user_id);
     afterLogin(data);
   } catch (err) {
-    console.error("Google login error:", err.message);
-    setError("error-msg", "Google sign-in failed. Please try again.");
+    console.error("[HA! Login] Google login error:", err.message, err.body);
+    const msg = err?.body?.detail || err.message || "Google sign-in failed. Please try again.";
+    setError("error-msg", msg);
   }
 }
 

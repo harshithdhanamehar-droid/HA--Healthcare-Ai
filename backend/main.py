@@ -997,26 +997,217 @@ def update_user_location(user_id: str, data: UserUpdateLocation):
 
 def validate_health_query(message: str) -> str:
     """
-    Health Validator: uses LLM intent classification to determine whether
-    a query is health-related or not.
+    Health Query Validator: uses keyword/pattern matching to determine whether
+    a query is health-related.
     Returns 'HEALTH' or 'NON_HEALTH'.
+    
+    Strategy: Whitelist common non-health conversational phrases, then check for
+    health-related keywords. This allows natural conversation while rejecting
+    clearly unrelated queries.
     """
-    validator_system = (
-        "You are a strict intent classifier for a healthcare chatbot. "
-        "Your only job is to classify the user's query as HEALTH or NON_HEALTH.\n\n"
-        "Rules:\n"
-        "- HEALTH: The query is exclusively about medical topics such as symptoms, "
-        "diseases, medications, mental health, nutrition, fitness, anatomy, "
-        "medical procedures, healthcare advice, or patient wellbeing.\n"
-        "- NON_HEALTH: The query is about anything outside the healthcare domain "
-        "(e.g. cooking, technology, finance, entertainment, sports, general knowledge).\n"
-        "- If the query mixes healthcare with ANY non-healthcare topic, classify as NON_HEALTH.\n\n"
-        "Respond with exactly one word: HEALTH or NON_HEALTH. No explanation. No punctuation."
-    )
-    result = call_ai(message, validator_system).strip().upper()
-    # Normalise — only accept exact HEALTH, everything else is NON_HEALTH
-    if result == "HEALTH":
-        return "HEALTH"
+    msg_lower = message.lower().strip()
+    
+    # ── Conversational phrases: always allowed ──────────────────────────
+    conversational = [
+        "hi", "hello", "hey", "good morning", "good afternoon", "good evening",
+        "how are you", "thanks", "thank you", "ok", "okay", "yes", "no",
+        "explain that", "tell me more", "more details", "what do you mean",
+        "i don't understand", "can you clarify", "say that again", "go on",
+        "continue", "interesting", "i see", "got it", "understood",
+    ]
+    
+    # Check if message is purely conversational (shorter messages)
+    if len(msg_lower.split()) <= 5:
+        for phrase in conversational:
+            if msg_lower == phrase or msg_lower.startswith(phrase + " "):
+                return "HEALTH"  # Allow greeting/follow-up in health context
+    
+    # ── Health keywords: comprehensive expanded list ──────────────────────
+    # This list is intentionally broad to catch medical/health terminology
+    # even when phrased unfamiliar ways. Better to accept a health query
+    # and let the AI system filter than to reject valid medical questions.
+    health_keywords = [
+        # Common symptoms & conditions
+        "symptom", "disease", "illness", "sick", "sickness", "condition",
+        "fever", "cough", "cold", "flu", "pain", "ache", "headache", "migraine",
+        "nausea", "vomit", "vomiting", "diarrhea", "constipation", "bloat",
+        "allergy", "allergies", "allergic", "asthma", "wheeze",
+        
+        # Chronic conditions
+        "diabetes", "diabetic", "hypertension", "hypertensive", "blood pressure",
+        "cholesterol", "heart", "cardiac", "coronary", "angina",
+        "cancer", "tumor", "tumour", "malignant",
+        "stroke", "ischemic", "hemorrhage", "embolism",
+        
+        # Infections & pathogens
+        "infection", "infectious", "infected", "virus", "viral",
+        "bacteria", "bacterial", "fungal", "fungus", "parasite",
+        "antibiotic", "antiviral", "antifungal",
+        
+        # Mental health
+        "anxiety", "panic", "depression", "depressed", "bipolar",
+        "stress", "stressed", "ptsd", "trauma", "insomnia", "sleep",
+        "adhd", "autism", "autistic", "ocd", "eating disorder",
+        
+        # Injuries & wounds
+        "injury", "injured", "wound", "wound", "laceration",
+        "burn", "burned", "fracture", "fractured", "sprain",
+        "bruise", "bruised", "contusion", "concussion",
+        
+        # Skin conditions
+        "rash", "eczema", "psoriasis", "acne", "dermatitis",
+        "hives", "wart", "mole", "skin tag",
+        
+        # Digestive & GI
+        "acid reflux", "gerd", "heartburn", "ulcer", "ibs",
+        "crohn", "colitis", "diverticulitis", "appendicitis",
+        "gastroparesis", "gastritis", "esophageal",
+        
+        # Respiratory
+        "bronchitis", "pneumonia", "emphysema", "copd",
+        "sinusitis", "laryngitis", "pharyngitis", "tonsillitis",
+        "tuberculosis", "tb", "asthma", "apnea",
+        
+        # Neurological
+        "migraine", "headache", "vertigo", "dizziness", "dizzy",
+        "tremor", "seizure", "epilepsy", "parkinson", "alzheimer",
+        "stroke", "tia", "neuropathy", "neuropathic",
+        
+        # Immune-related
+        "immune", "immunity", "autoimmune", "lupus", "rheumatoid",
+        "arthritis", "arthritic", "inflammatory",
+        
+        # Endocrine
+        "thyroid", "thyroiditis", "goiter", "hyperthyroid", "hypothyroid",
+        "glucose", "blood sugar", "hyperglycemia", "hypoglycemia",
+        "hormone", "hormonal", "menstrual", "menopause",
+        
+        # Reproductive & sexual health
+        "pregnancy", "pregnant", "prenatal", "postnatal",
+        "menstrual", "period", "menopause", "pms",
+        "erectile", "impotence", "sexually transmitted",
+        "std", "sti", "contraception", "contraceptive",
+        
+        # Body parts & systems (general)
+        "heart", "lung", "kidney", "liver", "pancreas",
+        "brain", "nervous", "spinal", "spine", "vertebra",
+        "stomach", "intestine", "bowel", "colon", "rectum",
+        "bone", "muscle", "cartilage", "ligament", "tendon",
+        "skin", "eye", "ear", "nose", "throat", "mouth",
+        "blood", "artery", "vein", "capillary", "circulation",
+        "nerve", "neuron", "synapse", "cortex",
+        "gland", "bladder", "prostate", "thyroid",
+        
+        # Medical procedures & treatments
+        "medicine", "medication", "medicinal", "drug", "pharmaceutical",
+        "therapy", "therapist", "therapeutic",
+        "surgery", "surgical", "surgeon", "operation", "operate",
+        "injection", "injected", "vaccine", "vaccination", "vaccinate",
+        "vaccine", "immunization", "immunize",
+        "prescription", "prescribe", "rx",
+        "treatment", "treat", "cure", "remedy",
+        "diagnosis", "diagnose", "diagnostic",
+        
+        # Medical roles & places
+        "doctor", "physician", "md", "md.", "dr.", "dr",
+        "nurse", "nursing", "nursey",
+        "hospital", "hospitalize", "hospitalization",
+        "clinic", "clinician", "clinical",
+        "laboratory", "lab", "pathology", "radiology",
+        "emergency", "er", "ed", "icu",
+        
+        # Medical terms & concepts
+        "symptom", "syndrome", "disorder", "disease",
+        "acute", "chronic", "acute", "onset",
+        "etiology", "pathology", "pathophysiology",
+        "prognosis", "diagnosis",
+        "prevention", "preventive", "prophylaxis", "prophylactic",
+        "health", "wellness", "wellbeing", "healthy", "unhealthy",
+        "care", "caregiver", "recovery", "recover", "recovering",
+        "heal", "healing", "healed", "chronic", "acute",
+        
+        # Nutrition & diet
+        "nutrition", "nutritious", "nutritionist",
+        "diet", "dietary", "dietitian",
+        "calorie", "caloric", "calorie", "calorie",
+        "vitamin", "mineral", "nutrient", "supplement",
+        "protein", "carbohydrate", "carb", "fat", "lipid",
+        "cholesterol", "sodium", "potassium",
+        "organic", "gmo", "gluten", "dairy", "vegan",
+        "nutrition", "balanced diet", "eating disorder",
+        
+        # Fitness & exercise
+        "exercise", "fitness", "physical", "activity",
+        "workout", "training", "gym",
+        "stretching", "strength", "endurance",
+        "sport", "sports", "athlete", "athletic",
+        "running", "walking", "swimming", "cycling",
+        
+        # Mental health (expanded)
+        "mental health", "counseling", "therapist",
+        "psychologist", "psychiatrist", "psychiatry",
+        "therapy", "psychotherapy", "psychology",
+        "mood", "emotional", "emotion",
+        
+        # Sexual health & reproduction
+        "pregnancy", "pregnant", "birth", "labor",
+        "contraception", "contraceptive", "condom",
+        "fertility", "infertility", "miscarriage",
+        "abortion", "ectopic", "pelvic inflammatory",
+        
+        # Substance-related
+        "alcohol", "alcoholic", "addiction", "addicted",
+        "drug", "narcotics", "opioid", "heroin",
+        "smoking", "nicotine", "tobacco", "vape",
+        "caffeine", "stimulant", "depressant",
+        
+        # Allergies & sensitivities
+        "allergy", "allergic", "anaphylaxis", "anaphylactic",
+        "intolerance", "lactose", "gluten", "celiac",
+        "eczema", "hives", "urticaria",
+        
+        # Pain management
+        "pain", "painful", "ache", "aching",
+        "chronic pain", "acute pain",
+        "analgesia", "analgesic", "painkiller",
+        "opioid", "nsaid", "ibuprofen", "aspirin",
+        
+        # Aging & elderly health
+        "aging", "elderly", "geriatric", "senile",
+        "dementia", "alzheimer", "memory loss",
+        "hip fracture", "osteoporosis",
+        
+        # Medical tests & procedures
+        "blood test", "urine test", "biopsy",
+        "x-ray", "ct scan", "mri", "ultrasound",
+        "ekg", "ecg", "mammogram", "colonoscopy",
+        "endoscopy", "laparoscopy",
+        
+        # Conditions starting with common prefixes
+        "anti", "hyper", "hypo", "poly", "mono",
+        "itis", "osis", "emia", "algia", "pathy",
+        "plasty", "ectomy", "ology",
+        
+        # Specific conditions we need to catch
+        "tinnitus", "acupuncture", "epistaxis",
+        
+        # General medical/health-related terms
+        "medical", "medicinal", "medicine",
+        "healthcare", "health care", "medical",
+        "clinical", "clinician",
+        "patient", "ward",
+        "bio", "biological", "biochemical",
+        "genetic", "genetics", "dna", "rna",
+        "immune", "immunity", "immunology",
+        "pathogen", "microbe", "microbial",
+    ]
+    
+    # Check if any health keyword is in the message
+    for keyword in health_keywords:
+        if keyword in msg_lower:
+            return "HEALTH"
+    
+    # ── If no health keywords found: NON_HEALTH ──────────────────────────
     return "NON_HEALTH"
 
 

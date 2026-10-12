@@ -346,6 +346,12 @@ async function sendMessage() {
   const message  = inputEl ? inputEl.value.trim() : "";
   const username = localStorage.getItem("ha_name") || "Patient";
 
+  // Prevent empty messages and multiple rapid clicks
+  if (!message) {
+    console.warn("[HA! Chat] Empty message prevented");
+    return;
+  }
+
   // Always read phone fresh — never use a cached variable
   const phone = getUserPhone();
 
@@ -353,8 +359,6 @@ async function sendMessage() {
   if (!currentChatId) {
     currentChatId = generateChatId();
   }
-
-  if (!message) return;
 
   // Build the exact payload that will be sent to POST /chat
   const payload = {
